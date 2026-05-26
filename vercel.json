@@ -1,0 +1,62 @@
+{
+  "version": 2,
+  "buildCommand": "pnpm build",
+  "devCommand": "pnpm dev",
+  "installCommand": "pnpm install",
+  "framework": "other",
+  "env": {
+    "NODE_ENV": "production",
+    "DATABASE_URL": {
+      "description": "URL de conexión a la base de datos MySQL",
+      "required": true
+    },
+    "OAUTH_SERVER_URL": {
+      "description": "URL del servidor OAuth",
+      "required": false
+    },
+    "OWNER_OPEN_ID": {
+      "description": "ID del propietario para el gate de acceso",
+      "required": false
+    },
+    "TELEGRAM_BOT_TOKEN": {
+      "description": "Token del bot de Telegram para alertas",
+      "required": false
+    },
+    "TELEGRAM_CHAT_ID": {
+      "description": "ID del chat/grupo de Telegram para alertas",
+      "required": false
+    },
+    "RESEND_API_KEY": {
+      "description": "API Key de Resend para envío de emails",
+      "required": false
+    },
+    "EMAIL_FROM": {
+      "description": "Email remitente para notificaciones",
+      "required": false
+    },
+    "GOOGLE_CLIENT_ID": {
+      "description": "Client ID de Google para Calendar",
+      "required": false
+    },
+    "GOOGLE_CLIENT_SECRET": {
+      "description": "Client Secret de Google para Calendar",
+      "required": false
+    }
+  },
+  "builds": [
+    {
+      "src": "dist/index.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "dist/public/**",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "dist/index.js"
+    }
+  ]
+}

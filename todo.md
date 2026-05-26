@@ -1,0 +1,127 @@
+# Project TODO
+
+- [x] Definir el alcance exacto del MVP y las decisiones funcionales mínimas para operación real.
+- [x] Diseñar el modelo de datos para leads, configuraciones, eventos de calendario, alertas y trazabilidad básica.
+- [x] Implementar tablas de base de datos y migración inicial para el MVP.
+- [x] Implementar lógica central de cálculos automáticos de cotización en tiempo real.
+- [x] Implementar lógica de scoring, semaforización y reglas duras de prioridad.
+- [x] Implementar procedimientos tRPC para crear, listar, ver, editar y actualizar leads.
+- [x] Implementar gestión simple de estados del lead y campos operativos de seguimiento.
+- [x] Implementar configuración editable de precios y reglas base sin tocar código.
+- [x] Implementar integración MVP con Google Calendar evitando duplicados y permitiendo actualización del evento.
+- [x] Implementar alertas básicas operativas por email para leads en riesgo, vencidos o sin gestión.
+- [x] Diseñar la experiencia como panel interno usando el layout existente del template cuando aplique.
+- [x] Construir dashboard operativo con métricas clave, próximas visitas y alertas pendientes.
+- [x] Construir formulario de captura y edición con validaciones claras y cálculos visibles.
+- [x] Construir listado de leads con filtros útiles y señales visuales de prioridad.
+- [x] Construir vista de detalle del lead con información comercial, scoring y seguimiento.
+- [x] Restringir operaciones según rol administrador/agente sin complejidad innecesaria.
+- [x] Escribir pruebas Vitest para la lógica crítica del negocio y las rutas principales.
+- [x] Validar el proyecto con pruebas y revisión del estado del entorno antes de entregar.
+- [x] Preparar la primera entrega con checkpoint final, resumen funcional y siguientes pasos.
+- [x] Dejar documentada para una siguiente iteración la configuración pendiente de credenciales de Google Calendar; el MVP actual opera con la sincronización desactivada y feedback explícito en interfaz.
+- [x] Dejar documentada para una siguiente iteración la configuración pendiente de credenciales de Resend; el MVP actual opera con fallback interno y sin bloqueo funcional.
+- [x] Verificar e implementar explícitamente la reutilización correcta del layout de dashboard preconstruido o documentar por qué fue necesario adaptarlo.
+- [x] Completar y demostrar el dashboard con métricas, próximas visitas y alertas pendientes usando estados reales de carga, vacío y error.
+- [x] Completar y validar el flujo end-to-end de creación y edición de leads con validación clara en frontend.
+- [x] Implementar y verificar señales visuales de prioridad en el listado con datos reales.
+- [x] Implementar y verificar la vista de detalle con scoring y seguimiento reales, evitando placeholders persistentes.
+- [x] Investigar por qué el usuario no puede probar la app aunque el proyecto está corriendo.
+- [x] Verificar la ruta correcta para pruebas: la versión actual funcional queda disponible en la URL de preview; el dominio publicado en blanco corresponde a una versión anterior y requiere republicación para reflejar la corrección.
+- [x] Corregir el bloqueo de acceso para usuarios sin sesión mostrando una puerta de entrada clara en lugar de una pantalla en blanco y dejar la app lista para pruebas en preview.
+- [x] Reposicionar la versión 1 del producto de cotizador a CRM comercial y máquina de ventas.
+- [x] Redefinir el lenguaje de interfaz para que cualquier usuario entienda el flujo sin formación previa.
+- [x] Simplificar los módulos principales para operación diaria: captura, seguimiento, agenda, pipeline y cierre.
+- [x] Replantear el dashboard para enfocarlo en actividad comercial, dinero potencial, prioridades y próximas acciones.
+- [x] Ajustar formularios, estados y vistas para que el sistema funcione como CRM práctico y ejecutable.
+- [x] Revisar la experiencia completa para que sea usable, clara y orientada a generar ingresos.
+- [x] Renombrar y reposicionar el producto en toda la interfaz como "Máquina de ventas".
+- [x] Adaptar la experiencia para dos perfiles de uso principales dentro de una misma operación comercial.
+- [x] Incorporar foco explícito en seguimiento comercial, cierre de ventas, ingresos y comisiones.
+- [x] Definir y aplicar un pipeline comercial claro y comprensible para usuarios no técnicos.
+- [x] Separar correctamente contacto y empresa dentro del modelo actual del lead sin romper compatibilidad.
+- [x] Implementar una estructura explícita de contacto y empresa en el modelo comercial, manteniendo compatibilidad con los registros actuales.
+- [x] Actualizar contratos tipados y rutas del CRM para exponer contacto y empresa como bloques diferenciados sin romper los flujos existentes.
+- [x] Ajustar la interfaz de oportunidades para capturar y mostrar contacto y empresa como secciones separadas, con pruebas de compatibilidad.
+
+- [x] Reorganizar el formulario de creación en bloques de captura, cotización y calificación inicial con validaciones obligatorias.
+- [x] Forzar estado inicial "Nuevo" y automatizar fecha de ingreso y última actividad.
+- [x] Hacer que agente responsable provenga de un catálogo oficial y no de texto libre.
+- [x] Mejorar la lista de leads con columnas operativas, búsqueda robusta, ordenamiento y filtros por ciudad, agente, estado, prioridad, canal y tipo de evento.
+- [x] Convertir el detalle del lead en un panel de trabajo real con edición directa, score explicado e historial visible.
+- [x] Habilitar edición directa de datos operativos desde el panel del lead para reducir cambios de contexto del vendedor.
+- [x] Hacer más explicable la prioridad y el score del lead dentro del panel con desglose y reglas aplicadas en lenguaje operativo.
+- [x] Implementar historial humano y del sistema con actualización automática de última actividad.
+- [x] Formalizar la lógica de cambio de estado con motivos estructurados para perdido y pausado.
+- [x] Crear un módulo exclusivo de scoring con criterios editables, umbrales y trazabilidad básica.
+- [x] Rehacer el dashboard para enfocarlo en conversión, ticket promedio, pipeline, agentes, ciudades y prioridades.
+- [x] Robustecer configuración con confirmaciones, validaciones, protección de campos sensibles y log de cambios.
+- [x] Implementar gestión de agentes y roles desde configuración como fuente oficial para asignación comercial.
+- [x] Aplicar permisos reales por rol para invitado, agente, administrador y superadministrador.
+- [x] Añadir trazabilidad de automatizaciones y bitácora de cambios sensibles sobre leads.
+- [x] Unificar labels, placeholders y textos para que el producto se entienda como CRM comercial simple y accionable.
+- [x] Aplicar el branding definitivo como "Máquina de ventas" en shell, dashboard y módulos principales.
+- [x] Hacer visible la operación para ambos perfiles comerciales dentro de la misma experiencia del CRM.
+- [x] Activar módulo y explicación de scoring, junto con permisos visibles por rol, en la versión operativa actual.
+- [x] Simplificar el lenguaje, los módulos y el flujo operativo diario de la vista central de leads para hacer más clara la operación del MVP.
+- [x] Resolver definitivamente el desajuste de enum `users.role` en base de datos para eliminar el error de autenticación y upsert en runtime.
+- [x] Agregar pruebas Vitest para `settings.team` y `settings.updateUserRole` cubriendo permisos, bloqueo de autoedición y restricción de superadmin.
+- [x] Validar la asignación por catálogo en la vista de leads para confirmar que la selección de agente sincroniza `agenteUserId`, `agenteResponsable` y el filtro por responsable.
+- [x] Completar la implementación transversal del foco en seguimiento, cierres, ingresos y comisiones en módulos clave con estados consistentes.
+- [x] Añadir y ejecutar pruebas automatizadas que validen explícitamente los nuevos indicadores comerciales del dashboard.
+- [x] Completar un bloque explícito de calificación inicial en el formulario con score o prioridad inicial claramente separados de captura y cotización.
+- [x] Añadir o actualizar pruebas Vitest que validen reglas obligatorias del formulario reorganizado y el comportamiento del bloque de calificación inicial.
+- [x] Endurecer la configuración operativa con validaciones compartidas de umbrales e integraciones opcionales antes de guardar.
+- [x] Mostrar en el panel del lead un bloque explícito de trazabilidad de automatizaciones con estado, acción y mensaje.
+- [x] Añadir pruebas Vitest para validar la actividad `sensitive_fields_changed` y el resumen visible del historial.
+- [x] Unificar en SettingsPage los labels y mensajes operativos más técnicos con lenguaje comercial claro y consistente.
+- [x] Completar la unificación transversal de microcopy en todo el CRM (Home, Leads, detalle/panel, mensajes de éxito/error y acciones rápidas), eliminando mezclas de 'lead/leads' vs 'negocio/oportunidad' y términos técnicos no deseados.
+- [x] Estandarizar un glosario de términos UI (por ejemplo: 'oportunidad', 'puntaje', 'embudo') y aplicarlo en labels, placeholders, toasts y estados vacíos/errores para garantizar consistencia comercial.
+- [x] Revisar y reemplazar de forma exhaustiva los textos UI restantes con 'lead/leads/pipeline/score' en pantallas principales, incluyendo labels, placeholders y descripciones visibles.
+- [x] Añadir una verificación automatizada o script de búsqueda que detecte la reaparición de términos UI no permitidos en la interfaz visible.
+- [x] Validar específicamente el detalle/panel del lead y las acciones rápidas para confirmar consistencia terminológica completa con evidencia en código.
+- [x] Revisar Home para sustituir restos visibles como 'dashboard' y expresiones mixtas en tarjetas, alertas y métricas por un lenguaje comercial uniforme.
+- [x] Revisar LeadsPage en el panel de trabajo y la calificación inicial para reemplazar textos visibles que aún mencionan 'pipeline', 'score' o 'lead' por el glosario comercial definido.
+- [x] Extender la unificación del glosario a estados globales y vistas de error para que toda la experiencia visible permanezca en español comercial consistente.
+- [x] Revisar y unificar también NotFound.tsx y demás estados globales (404, errores de carga y estados vacíos) para eliminar términos inconsistentes y asegurar tono comercial uniforme.
+- [x] Ajustar en Configuración las referencias visibles restantes a "panel del negocio" y "dashboard operativo" para alinearlas con "panel de la oportunidad" y "resumen comercial".
+- [x] Cerrar primero el ajuste visible en Configuración reemplazando las referencias restantes a "panel del negocio" y "dashboard operativo" por "panel de la oportunidad" y "resumen comercial", y entregar una versión para prueba antes de seguir con los otros pendientes.
+- [x] Cerrar el segundo pendiente priorizado revisando Home para sustituir restos visibles como "dashboard" y expresiones mixtas en tarjetas, alertas y métricas por lenguaje comercial uniforme, y entregar una versión de prueba antes de avanzar.
+- [x] Agregar exportación fácil a Excel desde el CRM mediante un botón visible que descargue una sábana estructurada con todos los campos de clientes y oportunidades.
+- [x] Incorporar un ID único irrepetible por registro y mostrarlo tanto en el CRM como en el archivo Excel exportable.
+- [x] Validar con pruebas la exportación a Excel y la presencia del ID único en la interfaz y en el archivo descargado, y entregar evidencia al usuario.
+- [x] Cerrar el siguiente ajuste visible en LeadsPage reemplazando restos de 'lead', 'pipeline' y 'score' en panel de trabajo, calificación inicial y acciones principales por el glosario comercial aprobado.
+- [x] Revisar exhaustivamente LeadsPage y reemplazar todos los textos visibles restantes con 'lead/leads/pipeline/score' por el glosario comercial definido, incluyendo panel, formulario, filtros, mensajes, badges y descripciones.
+- [x] Actualizar o ampliar pruebas automatizadas para detectar términos no permitidos en el texto visible de LeadsPage y prevenir regresiones.
+- [x] Volver a validar con evidencia que no queden términos desalineados en LeadsPage antes de cerrar este ajuste.
+- [x] Ampliar la prueba automatizada de microcopy para escanear también las páginas y componentes visibles principales del cliente, no solo LeadsPage y estados globales.
+- [x] Añadir una verificación explícita del contenido final de LeadsPage para el panel de trabajo y el bloque de puntaje inicial, con evidencia automatizada por secciones visibles.
+- [x] Revisar con evidencia el detalle de la oportunidad y las acciones rápidas para eliminar términos mixtos restantes y asegurar consistencia comercial completa.
+- [x] Ejecutar una auditoría completa del microcopy visible del detalle y las acciones rápidas de LeadsPage, incluyendo estados de vacío, carga, error y éxito, para corregir cualquier término mixto restante.
+- [x] Ampliar la prueba automatizada para verificar ausencia de términos no permitidos en todas las secciones del detalle y las acciones rápidas de LeadsPage, con cadenas esperadas y prohibidas explícitas.
+- [x] Confirmar y registrar en todo.md el cierre de este bloque solo después de pasar la validación ampliada sin excepciones.
+- [x] Añadir bitácora persistente de cambios de Configuración para registrar qué cambió, quién lo cambió y cuándo se actualizó cada ajuste sensible.
+- [x] Mostrar en Configuración un resumen visible del último cambio aplicado y un historial reciente simple para cambios sensibles de reglas, metas e integraciones.
+- [x] Cubrir con Vitest la creación y consulta del historial de cambios de Configuración para evitar regresiones.
+- [x] Verificar de punta a punta el botón de exportación Excel y el ID CRM único con evidencia final para el usuario antes de continuar con otros bloques del MVP.
+- [x] Añadir columnas explícitas de contacto y empresa en la base de datos, con migración segura y backfill compatible para los registros actuales.
+- [x] Actualizar el mapeo del servidor y los contratos tipados para exponer bloques diferenciados de contacto y empresa sin romper exportación, filtros ni detalle.
+- [x] Reorganizar el formulario y el panel de oportunidad para mostrar secciones separadas de contacto y empresa manteniendo el flujo comercial actual.
+- [x] Añadir pruebas Vitest de compatibilidad para creación, edición y lectura de oportunidades con la nueva separación contacto/empresa.
+- [x] Crear una guía operativa visible por perfil dentro del CRM para diferenciar captura rápida y gestión de seguimiento sin capacitación previa.
+- [x] Simplificar el área de oportunidades con un resumen accionable por etapa, siguiente paso y cierre para reducir fricción diaria.
+- [x] Unificar el microcopy transversal de Home, oportunidades y acciones rápidas bajo un glosario comercial corto y consistente.
+- [x] Añadir o ampliar pruebas Vitest de microcopy y usabilidad visible para cubrir la nueva guía operativa, el resumen por etapa y el glosario unificado.
+- [x] Añadir un campo desplegable para clasificar cada registro comercial como empresa o persona dentro del formulario y del detalle.
+- [x] Renombrar el campo tipo de evento a motivo de viaje y convertirlo en un selector con opciones familiar, empresarial y educativo.
+- [x] Asegurar que los nuevos campos queden reflejados en la lectura, edición y exportación del CRM sin romper compatibilidad.
+- [x] Añadir o actualizar pruebas Vitest para cubrir el selector empresa/persona, motivo de viaje y persistencia de ambos campos.
+- [x] Auditar y corregir de forma exhaustiva el texto visible restante en Home, LeadsPage, SettingsPage, DashboardLayout, NotFound y ErrorBoundary para eliminar términos no permitidos y mezclas residuales.
+- [x] Crear una prueba automatizada de barrido de microcopy visible en archivos clave que bloquee la reaparición de términos prohibidos en labels, placeholders, toasts y estados visibles.
+- [x] Revalidar el microcopy del CRM con Vitest y evidencia explícita de que el barrido de términos visibles queda limpio antes del próximo checkpoint.
+- [x] Proteger en Configuración los campos sensibles de integraciones y alertas con estados deshabilitados, ayudas contextuales y validaciones visibles según cada activación.
+- [x] Reforzar la experiencia de guardado en Configuración con un resumen más claro de impacto operativo para cambios sensibles e integraciones opcionales.
+- [x] Añadir o actualizar pruebas Vitest para cubrir la protección contextual de campos sensibles y el nuevo resumen de guardado en Configuración.
+- [x] Ejecutar y registrar evidencia de `pnpm vitest run server/ui-visible-copy.audit.test.ts server/leads-page.ui-copy.test.ts` para validar de forma explícita el lenguaje transversal en superficies clave.
+- [x] Añadir una prueba adicional que cubra estados críticos entre Home, Leads y Configuración para sustentar la experiencia usable y orientada a ingresos.
+- [x] Documentar o probar explícitamente la consistencia del foco en seguimiento, cierres, ingresos y comisiones en Configuración y estados globales con aserciones visibles.

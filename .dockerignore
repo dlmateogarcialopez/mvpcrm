@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build artifacts
+dist/
+.next/
+
+# Environment files (secrets)
+.env
+.env.local
+.env.production
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Agent skills (not needed in containers)
+.agent/
+
+# Logs
+*.log
+.manus-logs/
+
+# Documentation (not needed in containers)
+docs/
+guias/
+*.md
+!README.md
+
+# Tests (not needed in production)
+*.test.ts
+*.spec.ts
+vitest.config.ts
+
+# Misc
+.prettierrc
+.prettierignore
+*.zip
+*.tar.gz
