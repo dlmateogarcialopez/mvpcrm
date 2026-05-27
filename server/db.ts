@@ -1512,6 +1512,12 @@ export async function updatePipelineStages(stages: any[]) {
   return stages;
 }
 
+export async function createPipelineStage(data: any) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.insert(pipelineStages).values(data);
+}
+
 /**
  * Funciones para Etiquetas Personalizadas
  */
@@ -1599,4 +1605,31 @@ export async function createEmailCampaign(data: any) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db.insert(emailCampaigns).values(data);
+}
+
+export async function getEmailCampaign(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [campaign] = await db.select().from(emailCampaigns).where(eq(emailCampaigns.id, id)).limit(1);
+  return campaign;
+}
+
+export async function updateEmailCampaign(id: number, data: any) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(emailCampaigns).set(data).where(eq(emailCampaigns.id, id));
+  return getEmailCampaign(id);
+}
+
+export async function deleteEmailCampaign(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.delete(emailCampaigns).where(eq(emailCampaigns.id, id));
+}
+
+export async function getUserById(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return user;
 }
