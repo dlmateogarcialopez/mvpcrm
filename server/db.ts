@@ -550,8 +550,8 @@ function mapLeadToMutableInput(row: Lead): Omit<LeadUpdateInput, "publicId"> {
     precioJunior: row.precioJunior,
     precioSenior: row.precioSenior,
     precioParqueadero: row.precioParqueadero,
-    estadoLead: row.estadoLead,
-    canalOrigen: row.canalOrigen,
+    estadoLead: row.estadoLead as any,
+    canalOrigen: row.canalOrigen as any,
     agenteUserId: row.agenteUserId,
     agenteResponsable: row.agenteResponsable,
     fechaIngresoLead: row.fechaIngresoLead,
@@ -1154,7 +1154,7 @@ export async function updateLead(input: LeadUpdateInput, user: CurrentUser) {
       leadId: existing.id,
       activityType: "status_changed",
       title: "Estado actualizado",
-      description: `Cambio de estado de ${leadStatusLabels[existing.estadoLead]} a ${leadStatusLabels[input.estadoLead]}.`,
+      description: `Cambio de estado de ${(leadStatusLabels as any)[existing.estadoLead]} a ${leadStatusLabels[input.estadoLead]}.`,
       payload: {
         before: existing.estadoLead,
         after: input.estadoLead,
@@ -1445,16 +1445,25 @@ export async function getDashboardSnapshot(user: CurrentUser) {
     };
   });
 
-  const byAgentMap = new Map<string, { name: string; count: number; value: number; won: number }>();
+  const byAgentMap = new Map<string, { name: string; count: number; value: number; won: number; closedCount: number }>();
   const byCityMap = new Map<string, { city: string; count: number; value: number }>();
 
-  for (const row of openRows) {
+  for (const row of rows) {
     const agentName = row.agenteResponsable ?? "Sin asignar";
-    const currentAgent = byAgentMap.get(agentName) ?? { name: agentName, count: 0, value: 0, won: 0 };
-    currentAgent.count += 1;
-    currentAgent.value += row.valorTotal;
+    const currentAgent = byAgentMap.get(agentName) ?? { name: agentName, count: 0, value: 0, won: 0, closedCount: 0 };
+    if (!row.isClosed) {
+      currentAgent.count += 1;
+      currentAgent.value += row.valorTotal;
+    } else {
+      currentAgent.closedCount += 1;
+      if (normalizeLeadStatus(row.estadoLead) === "ganado") {
+        currentAgent.won += 1;
+      }
+    }
     byAgentMap.set(agentName, currentAgent);
+  }
 
+  for (const row of openRows) {
     const cityName = normalizeText(row.ciudad) ?? "Sin ciudad";
     const currentCity = byCityMap.get(cityName) ?? { city: cityName, count: 0, value: 0 };
     currentCity.count += 1;

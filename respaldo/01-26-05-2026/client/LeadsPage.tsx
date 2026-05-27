@@ -14,7 +14,6 @@ import { AlertTriangle,
   Save,
   Search,
   Sparkles,
-  Upload,
   UserRound,
   X,
 } from "lucide-react";
@@ -48,8 +47,6 @@ import {
   normalizeLeadTravelReason,
   type LeadBusinessSettings,
   type LeadPartyKind,
-  type LeadStatus,
-  type LeadSource,
 } from "../../../shared/leads";
 import { trpc } from "../lib/trpc";
 
@@ -325,8 +322,8 @@ export default function LeadsPage() {
         precioJunior: lead.precioJunior,
         precioSenior: lead.precioSenior,
         precioParqueadero: lead.precioParqueadero,
-        estadoLead: lead.estadoLead as any,
-        canalOrigen: lead.canalOrigen as any,
+        estadoLead: lead.estadoLead,
+        canalOrigen: lead.canalOrigen,
         agenteUserId: lead.agenteUserId,
         agenteResponsable: lead.agenteResponsable ?? "",
         fechaIngresoLead: lead.fechaIngresoLead,
@@ -424,55 +421,6 @@ export default function LeadsPage() {
     },
     onError: error => toast.error(error.message),
   });
-
-  const downloadTemplateQuery = trpc.leads.downloadTemplate.useQuery(undefined, {
-    enabled: false,
-  });
-
-  const handleDownloadTemplate = async () => {
-    toast.loading("Generando plantilla...");
-    try {
-      const { data } = await downloadTemplateQuery.refetch();
-      toast.dismiss();
-      if (data) {
-        downloadBase64File(data.base64, data.fileName, data.mimeType);
-        toast.success("Plantilla descargada correctamente.");
-      } else {
-        toast.error("No se pudo obtener el archivo de plantilla.");
-      }
-    } catch (err) {
-      toast.dismiss();
-      toast.error(`Error al generar plantilla: ${err instanceof Error ? err.message : "error"}`);
-    }
-  };
-
-  const importSpreadsheetMutation = trpc.leads.importSpreadsheet.useMutation({
-    onSuccess: async result => {
-      toast.success(`¡Importación exitosa! Se cargaron ${result.importedCount} oportunidades.`);
-      await Promise.all([
-        utils.leads.dashboard.invalidate(),
-        utils.leads.list.invalidate(),
-      ]);
-    },
-    onError: error => toast.error(`Error al importar: ${error.message}`),
-  });
-
-  const handleExcelImport = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const data = e.target?.result as string;
-      const base64 = data.split(",")[1];
-      toast.loading("Importando oportunidades desde Excel...");
-      importSpreadsheetMutation.mutate({ base64 }, {
-        onSettled: () => toast.dismiss()
-      });
-    };
-    reader.readAsDataURL(file);
-    event.target.value = "";
-  };
 
   const pricingPreview = useMemo(() => {
     const totalPersonas = form.cantidadMultiple + form.cantidadJunior + form.cantidadSenior;
@@ -758,30 +706,6 @@ export default function LeadsPage() {
             <div className="flex flex-wrap items-center justify-end gap-3">
               <button
                 type="button"
-                onClick={handleDownloadTemplate}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition hover:bg-muted"
-              >
-                <Download className="h-4 w-4" />
-                Descargar Plantilla
-              </button>
-              <button
-                type="button"
-                onClick={() => document.getElementById("excel-import-input")?.click()}
-                disabled={importSpreadsheetMutation.isPending}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {importSpreadsheetMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                Importar Excel
-              </button>
-              <input
-                id="excel-import-input"
-                type="file"
-                accept=".xlsx, .xls"
-                onChange={handleExcelImport}
-                className="hidden"
-              />
-              <button
-                type="button"
                 onClick={() => exportSpreadsheetMutation.mutate()}
                 disabled={exportSpreadsheetMutation.isPending || leadRows.length === 0}
                 className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
@@ -791,7 +715,7 @@ export default function LeadsPage() {
               </button>
               <button
                 type="button"
-                onClick={() => startCreateMode()}
+                onClick={startCreateMode}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-95"
               >
                 <Plus className="h-4 w-4" />
@@ -1063,7 +987,7 @@ export default function LeadsPage() {
                       <p className="truncate text-xs text-muted-foreground">
                         ID CRM {lead.publicId} · {inferLeadPartyKind(lead) === "empresa" ? lead.nombreEmpresa || "Empresa sin nombre" : "Persona"}
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground sm:hidden">{lead.ciudad || "Sin ciudad"} · {leadStatusLabels[lead.estadoLead as LeadStatus] ?? lead.estadoLead}</p>
+                      <p className="mt-1 text-xs text-muted-foreground sm:hidden">{lead.ciudad || "Sin ciudad"} · {leadStatusLabels[lead.estadoLead]}</p>
                     </div>
                     <div className="hidden min-w-0 sm:block">
                       <p className="truncate">{lead.ciudad || "Sin ciudad"}</p>
@@ -1074,7 +998,7 @@ export default function LeadsPage() {
                     <div className="hidden min-w-0 sm:block">
                       <p className="truncate">{lead.proximaAccion || "Sin próxima acción"}</p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {leadStatusLabels[lead.estadoLead as LeadStatus] ?? lead.estadoLead} · {formatDateTime(lead.fechaLimiteGestion ?? lead.fechaVisita)}
+                        {leadStatusLabels[lead.estadoLead]} · {formatDateTime(lead.fechaLimiteGestion ?? lead.fechaVisita)}
                       </p>
                     </div>
                     <div className="hidden min-w-0 sm:block">
@@ -1624,7 +1548,7 @@ export default function LeadsPage() {
                 {mode === "edit" ? (
                   <button
                     type="button"
-                    onClick={() => startCreateMode()}
+                    onClick={startCreateMode}
                     className="inline-flex h-11 items-center justify-center rounded-xl border bg-background px-4 text-sm font-medium transition hover:bg-muted"
                   >
                     Cancelar edición
@@ -1654,7 +1578,7 @@ export default function LeadsPage() {
                 <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${priorityBadge(selectedLead.prioridad)}`}>
                   {leadPriorityLabels[selectedLead.prioridad]}
                 </span>
-                <span className="rounded-full border px-2.5 py-1 text-xs font-medium">{leadStatusLabels[selectedLead.estadoLead as LeadStatus] ?? selectedLead.estadoLead}</span>
+                <span className="rounded-full border px-2.5 py-1 text-xs font-medium">{leadStatusLabels[selectedLead.estadoLead]}</span>
               </div>
             ) : null}
           </div>
@@ -1675,7 +1599,7 @@ export default function LeadsPage() {
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Resumen accionable por etapa</p>
-                      <h3 className="mt-1 text-base font-semibold">{leadStatusLabels[selectedLead.estadoLead as LeadStatus] ?? selectedLead.estadoLead}: {selectedStageGuide.action}</h3>
+                      <h3 className="mt-1 text-base font-semibold">{leadStatusLabels[selectedLead.estadoLead]}: {selectedStageGuide.action}</h3>
                       <p className="mt-2 text-sm text-muted-foreground">{selectedStageGuide.description}</p>
                     </div>
                     <div className="rounded-2xl border bg-background px-4 py-3 text-sm text-muted-foreground lg:max-w-sm">

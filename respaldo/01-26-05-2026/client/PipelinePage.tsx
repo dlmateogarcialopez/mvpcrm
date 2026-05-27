@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, ChevronDown, Filter, Plus } from "lucide-react";
 import { useLocation } from "wouter";
-import { trpc, type Lead } from "../lib/trpc";
-import { leadStatusLabels, normalizeLeadStatus } from "../../../shared/leads";
+import { trpc } from "../lib/trpc";
+import { leadStatusLabels, normalizeLeadStatus, type Lead } from "../../../shared/leads";
 import { 
   DndContext, 
   DragEndEvent, 

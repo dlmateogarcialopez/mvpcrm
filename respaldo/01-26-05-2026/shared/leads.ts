@@ -241,17 +241,16 @@ function floorHoursSince(fromMs: number, targetMs: number | null): number | null
   return Math.max(0, Math.floor((fromMs - targetMs) / (1000 * 60 * 60)));
 }
 
-export function normalizeLeadStatus(status: string | null | undefined): string {
-  const s = status ?? "nuevo";
-  if (s === "cotizado") {
+export function normalizeLeadStatus(status: LeadStatus): LeadStatus {
+  if (status === "cotizado") {
     return "propuesta";
   }
 
-  if (s === "seguimiento") {
+  if (status === "seguimiento") {
     return "negociacion";
   }
 
-  return s;
+  return status;
 }
 
 export function scoreByCantidad(totalPersonas: number): number {
@@ -558,7 +557,7 @@ export function computeLeadMetrics(input: LeadComputationInput) {
 export function getLeadAlertFlags(
   metrics: ReturnType<typeof computeLeadMetrics>,
   fechaLimiteGestion?: number | string | Date | null,
-  estadoLead?: string | null,
+  estadoLead?: LeadStatus | null,
 ) {
   const ahoraMs = Date.now();
   const fechaLimiteGestionMs = toTimestamp(fechaLimiteGestion);

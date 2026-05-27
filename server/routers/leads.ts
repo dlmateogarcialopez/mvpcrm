@@ -1,4 +1,6 @@
 import { TRPCError } from "@trpc/server";
+import { z } from "zod";
+import * as XLSX from "xlsx";
 import {
   addLeadActivity,
   createLead,
@@ -21,6 +23,7 @@ import {
 import { protectedProcedure, router } from "../_core/trpc";
 import { runLeadAutomation } from "../services/leadAutomation";
 import { buildLeadWorkbookBuffer } from "../services/leadExport";
+import { normalizeLeadTravelReason } from "../../shared/leads";
 
 type RouterUser = Pick<CurrentUser, "id" | "role" | "name" | "email">;
 
@@ -144,4 +147,189 @@ export const leadsRouter = router({
       automation,
     };
   }),
+
+  downloadTemplate: protectedProcedure.query(async () => {
+    const headers = [
+      "Cliente",
+      "Teléfono",
+      "Correo",
+      "Ciudad",
+      "Empresa",
+      "Motivo de viaje",
+      "Motivo de visita",
+      "Objeción principal",
+      "Cantidad múltiple",
+      "Cantidad junior",
+      "Cantidad senior",
+      "Cantidad parqueadero",
+      "Canal de origen",
+      "Agente responsable",
+      "Notas internas"
+    ];
+    
+    const exampleRow = [
+      "Juan Pérez",
+      "3001234567",
+      "juan.perez@ejemplo.com",
+      "Bogotá",
+      "Empresa XYZ",
+      "corporativo",
+      "Reunión de planificación y almuerzo ejecutivo.",
+      "Ninguna",
+      "10",
+      "5",
+      "2",
+      "0",
+      "whatsapp",
+      "Equipo comercial",
+      "Cliente sumamente interesado en el plan corporativo con parqueadero incluido."
+    ];
+
+    const sheetRows = [headers, exampleRow];
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
+    worksheet["!cols"] = headers.map(() => ({ wch: 22 }));
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Plantilla Importación");
+
+    const buffer = XLSX.write(workbook, {
+      bookType: "xlsx",
+      type: "buffer",
+      compression: true,
+    });
+
+    return {
+      fileName: `plantilla-importacion-leads.xlsx`,
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      base64: buffer.toString("base64"),
+    };
+  }),
+
+  importSpreadsheet: protectedProcedure
+    .input(z.object({ base64: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const buffer = Buffer.from(input.base64, "base64");
+      const workbook = XLSX.read(buffer, { type: "buffer" });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
+
+      let importedCount = 0;
+      const currentUser = toCurrentUser(ctx.user);
+
+      const parseExcelDate = (value: any): number => {
+        if (!value) return Date.now() + 7 * 24 * 60 * 60 * 1000;
+        if (typeof value === "number") {
+          if (value > 100000) return value;
+          const date = new Date((value - 25569) * 86400 * 1000);
+          return date.getTime();
+        }
+        const str = String(value).trim();
+        const parsed = Date.parse(str);
+        if (!isNaN(parsed)) return parsed;
+
+        const parts = str.split(/[-\/]/);
+        if (parts.length === 3) {
+          if (parts[2].length === 4) {
+            const day = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10) - 1;
+            const year = parseInt(parts[2], 10);
+            const date = new Date(year, month, day);
+            if (!isNaN(date.getTime())) return date.getTime();
+          }
+          if (parts[0].length === 4) {
+            const year = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10) - 1;
+            const day = parseInt(parts[2], 10);
+            const date = new Date(year, month, day);
+            if (!isNaN(date.getTime())) return date.getTime();
+          }
+        }
+        return Date.now() + 7 * 24 * 60 * 60 * 1000;
+      };
+
+      for (const row of jsonData) {
+        const findVal = (keys: string[]) => {
+          for (const key of Object.keys(row)) {
+            const normalizedKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            if (keys.includes(normalizedKey)) return row[key];
+          }
+          return undefined;
+        };
+
+        const nombreCliente = findVal(["cliente", "nombre", "nombre cliente", "contacto"]) || "";
+        const telefono = findVal(["telefono", "celular", "contacto telefono"]) || "";
+        const correo = findVal(["correo", "email", "mail", "contacto correo"]) || "";
+
+        // Saltar si faltan los campos requeridos mínimos
+        if (!String(nombreCliente).trim() || !String(telefono).trim() || !String(correo).trim()) {
+          continue;
+        }
+
+        const ciudad = findVal(["ciudad", "empresa ciudad"]) || "";
+        const nombreEmpresa = findVal(["empresa", "nombre empresa"]) || "";
+        const motivoVisita = findVal(["motivo de visita", "motivo visita", "motivo"]) || "Importado desde Excel";
+        const objecionPrincipal = findVal(["objecion principal", "objecion"]) || "Ninguna";
+        const tipoEventoRaw = findVal(["motivo de viaje", "tipo evento", "evento"]) || "otro";
+        const fechaVisitaRaw = findVal(["fecha visita", "fecha"]);
+        
+        const cantidadMultiple = Number(findVal(["cantidad multiple", "multiple"]) || 0);
+        const cantidadJunior = Number(findVal(["cantidad junior", "junior"]) || 0);
+        const cantidadSenior = Number(findVal(["cantidad senior", "senior"]) || 0);
+        const cantidadParqueadero = Number(findVal(["cantidad parqueadero", "parqueadero"]) || 0);
+        
+        const canalOrigen = findVal(["canal de origen", "canal", "canal origen"]) || "otro";
+        const agenteResponsable = findVal(["agente responsable", "agente", "responsable"]) || "";
+        const notasInternas = findVal(["notas internas", "notas"]) || "";
+
+        const normalizeLeadSource = (value: string): "whatsapp" | "instagram" | "facebook" | "web" | "llamada" | "referido" | "otro" => {
+          const v = value.toLowerCase().trim();
+          const valid = ["whatsapp", "instagram", "facebook", "web", "llamada", "referido", "otro"];
+          return valid.includes(v) ? (v as any) : "otro";
+        };
+
+        const leadInput = {
+          nombreCliente: String(nombreCliente).trim(),
+          telefono: String(telefono).trim(),
+          correo: String(correo).trim(),
+          ciudad: String(ciudad).trim(),
+          nombreEmpresa: String(nombreEmpresa).trim(),
+          motivoVisita: String(motivoVisita).trim(),
+          objecionPrincipal: String(objecionPrincipal).trim(),
+          tipoEvento: normalizeLeadTravelReason(String(tipoEventoRaw).trim()),
+          fechaVisita: parseExcelDate(fechaVisitaRaw),
+          
+          cantidadMultiple,
+          cantidadJunior,
+          cantidadSenior,
+          cantidadParqueadero,
+          
+          precioMultiple: Number(findVal(["precio multiple", "precio unidad multiple"]) || 99000),
+          precioJunior: Number(findVal(["precio junior", "precio unidad junior"]) || 69000),
+          precioSenior: Number(findVal(["precio senior", "precio unidad senior"]) || 69000),
+          precioParqueadero: Number(findVal(["precio parqueadero", "precio unidad parqueadero"]) || 8000),
+          
+          canalOrigen: normalizeLeadSource(String(canalOrigen)),
+          agenteUserId: null,
+          agenteResponsable: String(agenteResponsable).trim(),
+          fechaLimiteGestion: null,
+          proximaAccion: "",
+          notasInternas: String(notasInternas).trim(),
+          motivoPerdido: "",
+          motivoPausa: "",
+          leadPartyKind: String(nombreEmpresa).trim() ? ("empresa" as const) : ("persona" as const),
+        };
+
+        const lead = await createLead(leadInput, currentUser);
+        if (lead) {
+          await runLeadAutomation(lead, ctx.user.id);
+          importedCount++;
+        }
+      }
+
+      return {
+        success: true,
+        importedCount,
+      };
+    }),
 });
