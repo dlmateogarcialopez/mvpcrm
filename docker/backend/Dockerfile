@@ -61,8 +61,9 @@ RUN pnpm install --no-frozen-lockfile --prod
 # Copiar artefactos del build
 COPY --from=builder /app/dist ./dist
 
-# Copiar archivos de migración de Drizzle
+# Copiar archivos de migración de Drizzle y código compartido
 COPY drizzle/ ./drizzle/
+COPY shared/ ./shared/
 
 # Variables de entorno por defecto
 ENV NODE_ENV=production

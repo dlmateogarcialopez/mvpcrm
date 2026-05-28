@@ -20,8 +20,11 @@ export async function createContext(
     } else {
       console.log(`[Context] No user found in request`);
     }
-  } catch (error) {
-    console.error(`[Context] Auth error:`, error);
+  } catch (error: any) {
+    const isSessionCookieError = error?.message === "Invalid session cookie";
+    if (!isSessionCookieError) {
+      console.error(`[Context] Auth error:`, error);
+    }
     user = null;
   }
 

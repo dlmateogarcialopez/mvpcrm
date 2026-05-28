@@ -35,20 +35,13 @@ function ProtectedDashboardRoutes() {
   );
 }
 
-import LoginPage from "./pages/LoginPage";
-
 function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster />
-          <Switch>
-            <Route path="/login" component={LoginPage} />
-            <Route>
-              <ProtectedDashboardRoutes />
-            </Route>
-          </Switch>
+          <ProtectedDashboardRoutes />
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

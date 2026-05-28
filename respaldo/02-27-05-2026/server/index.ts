@@ -28,46 +28,7 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
-async function runMigrations() {
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) {
-    console.warn("[Migration] No DATABASE_URL found. Skipping migrations.");
-    return;
-  }
-
-  console.log("[Migration] Running programmatic migrations (safe column check)...");
-  try {
-    const mysql = await import("mysql2/promise");
-    const connection = await mysql.createConnection({
-      uri: dbUrl,
-    });
-
-    // Verificamos si la columna passwordHash ya existe en la tabla users
-    const [rows]: any = await connection.query(`
-      SELECT COLUMN_NAME 
-      FROM INFORMATION_SCHEMA.COLUMNS 
-      WHERE TABLE_SCHEMA = DATABASE() 
-        AND TABLE_NAME = 'users' 
-        AND COLUMN_NAME = 'passwordHash'
-    `);
-
-    if (Array.isArray(rows) && rows.length === 0) {
-      console.log("[Migration] Column 'passwordHash' not found in 'users' table. Adding it...");
-      await connection.query("ALTER TABLE `users` ADD `passwordHash` text");
-      console.log("[Migration] Column 'passwordHash' added successfully!");
-    } else {
-      console.log("[Migration] Column 'passwordHash' already exists in 'users' table. No actions needed.");
-    }
-
-    await connection.end();
-  } catch (error) {
-    console.error("[Migration] Programmatic migration failed:", error);
-  }
-}
-
 async function startServer() {
-  await runMigrations();
-
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads

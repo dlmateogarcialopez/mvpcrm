@@ -593,7 +593,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     };
     const updateSet: Record<string, unknown> = {};
 
-    const textFields = ["name", "email", "loginMethod", "passwordHash"] as const;
+    const textFields = ["name", "email", "loginMethod"] as const;
     type TextField = (typeof textFields)[number];
 
     const assignNullable = (field: TextField) => {
@@ -646,24 +646,6 @@ export async function getUserByOpenId(openId: string) {
   }
 
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
-}
-
-export async function getUserCount(): Promise<number> {
-  const db = await getDb();
-  if (!db) return 0;
-  const result = await db.select().from(users);
-  return result.length;
-}
-
-export async function getUserByEmail(email: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, email.toLowerCase().trim()))
-    .limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 

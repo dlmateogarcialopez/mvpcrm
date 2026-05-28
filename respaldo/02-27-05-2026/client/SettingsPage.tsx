@@ -229,27 +229,6 @@ export default function SettingsPage() {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState(false);
 
-  const [showAddUserForm, setShowAddUserForm] = useState(false);
-  const [newUserName, setNewUserName] = useState("");
-  const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserPassword, setNewUserPassword] = useState("");
-  const [newUserRole, setNewUserRole] = useState<AppRole>("agent");
-
-  const createUserMutation = trpc.auth.createUser.useMutation({
-    onSuccess: async () => {
-      toast.success("Colaborador creado exitosamente.");
-      setNewUserName("");
-      setNewUserEmail("");
-      setNewUserPassword("");
-      setNewUserRole("agent");
-      setShowAddUserForm(false);
-      await utils.settings.team.invalidate();
-    },
-    onError: (error) => {
-      toast.error(error.message || "No fue posible crear el colaborador.");
-    },
-  });
-
   useEffect(() => {
     if (!settingsQuery.data) return;
 
@@ -675,109 +654,6 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
-
-              <div className="mt-6 flex justify-between items-center border-t pt-4">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Miembros del equipo</h3>
-                <button
-                  type="button"
-                  onClick={() => setShowAddUserForm(!showAddUserForm)}
-                  className="inline-flex h-9 items-center justify-center gap-1 rounded-xl bg-primary/10 px-3 text-xs font-semibold text-primary transition hover:bg-primary/20"
-                >
-                  {showAddUserForm ? "Cerrar formulario" : "Añadir Colaborador"}
-                </button>
-              </div>
-
-              {showAddUserForm && (
-                <div className="mt-3 rounded-2xl border bg-card p-4 shadow-sm space-y-4">
-                  <h4 className="text-sm font-semibold text-foreground">Registrar nuevo colaborador</h4>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                    <label className="grid gap-1.5 text-xs">
-                      <span className="font-medium text-slate-400">Nombre completo</span>
-                      <input
-                        required
-                        type="text"
-                        value={newUserName}
-                        onChange={(e) => setNewUserName(e.target.value)}
-                        className="h-10 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                        placeholder="Ej. Juan Pérez"
-                      />
-                    </label>
-
-                    <label className="grid gap-1.5 text-xs">
-                      <span className="font-medium text-slate-400">Correo electrónico</span>
-                      <input
-                        required
-                        type="email"
-                        value={newUserEmail}
-                        onChange={(e) => setNewUserEmail(e.target.value)}
-                        className="h-10 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                        placeholder="Ej. juan@correo.com"
-                      />
-                    </label>
-
-                    <label className="grid gap-1.5 text-xs">
-                      <span className="font-medium text-slate-400">Contraseña inicial</span>
-                      <input
-                        required
-                        type="password"
-                        value={newUserPassword}
-                        onChange={(e) => setNewUserPassword(e.target.value)}
-                        className="h-10 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                        placeholder="Mín. 6 caracteres"
-                      />
-                    </label>
-
-                    <label className="grid gap-1.5 text-xs">
-                      <span className="font-medium text-slate-400">Rol asignado</span>
-                      <select
-                        value={newUserRole}
-                        onChange={(e) => setNewUserRole(e.target.value as AppRole)}
-                        className="h-10 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                      >
-                        {appRoleValues.map((role) => (
-                          <option key={role} value={role}>
-                            {appRoleLabels[role]}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-
-                  <div className="flex gap-2 justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setShowAddUserForm(false)}
-                      className="inline-flex h-9 items-center justify-center rounded-xl border px-4 text-xs font-semibold transition hover:bg-muted"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="button"
-                      disabled={createUserMutation.isPending}
-                      onClick={() => {
-                        if (!newUserName || !newUserEmail || !newUserPassword) {
-                          toast.warning("Por favor, completa todos los campos.");
-                          return;
-                        }
-                        if (newUserPassword.length < 6) {
-                          toast.warning("La contraseña debe tener al menos 6 caracteres.");
-                          return;
-                        }
-                        createUserMutation.mutate({
-                          name: newUserName,
-                          email: newUserEmail,
-                          password: newUserPassword,
-                          role: newUserRole,
-                        });
-                      }}
-                      className="inline-flex h-9 items-center justify-center gap-1 rounded-xl bg-primary px-4 text-xs font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-60"
-                    >
-                      {createUserMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                      Guardar Colaborador
-                    </button>
-                  </div>
-                </div>
-              )}
 
               <div className="mt-4 space-y-3">
                 {teamQuery.isLoading ? (

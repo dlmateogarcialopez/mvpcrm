@@ -21,7 +21,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { BarChart3, CalendarClock, LogOut, PanelLeft, Settings2, Kanban, Zap, Mail, Loader2 } from "lucide-react";
+import { BarChart3, CalendarClock, LogOut, PanelLeft, Settings2, Kanban, Zap, Mail } from "lucide-react";
 import React, { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
@@ -97,19 +97,65 @@ export default function DashboardLayout({
 }
 
 function UnauthenticatedAccessGate() {
-  const [, setLocation] = useLocation();
+  const loginUrl = useMemo(() => {
+    if (typeof window === "undefined") {
+      return "#";
+    }
 
-  useEffect(() => {
-    setLocation("/login");
-  }, [setLocation]);
+    return getLoginUrl();
+  }, []);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950">
-      <div className="flex items-center gap-3 text-sm text-slate-400">
-        <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
-        Redirigiendo al inicio de sesión...
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,23,42,0.04),_transparent_45%),linear-gradient(180deg,_#f8fafc_0%,_#eef2ff_100%)] px-4 py-8 text-slate-900 sm:px-6 lg:px-8">
+      <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl items-center">
+        <div className="grid w-full gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+          <section className="rounded-[32px] border border-slate-200/70 bg-slate-950 px-8 py-10 text-white shadow-[0_30px_80px_rgba(15,23,42,0.18)] sm:px-10 lg:px-12">
+            <span className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.32em] text-white/70">
+              Acceso a Máquina de ventas
+            </span>
+            <h1 className="mt-6 max-w-xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
+              El CRM comercial ya está disponible para validación con tu sesión.
+            </h1>
+            <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
+              Esta aplicación funciona como centro de operación comercial. Si entras sin sesión activa verás esta puerta de acceso en lugar de una pantalla vacía. Al iniciar sesión podrás revisar el resumen, ordenar oportunidades en el embudo, actualizar seguimientos y administrar reglas operativas.
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <a
+                href={loginUrl}
+                className="inline-flex h-12 items-center justify-center rounded-2xl bg-white px-6 text-sm font-semibold text-slate-950 transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+              >
+                  Entrar a Máquina de ventas
+
+              </a>
+              <a
+                href="/"
+                className="inline-flex h-12 items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 text-sm font-semibold text-white transition hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+              >
+                Volver al acceso principal
+              </a>
+            </div>
+          </section>
+
+          <aside className="rounded-[32px] border border-slate-200/80 bg-white/90 p-7 shadow-[0_24px_70px_rgba(15,23,42,0.08)] backdrop-blur">
+            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-slate-500">Qué podrás operar</p>
+            <div className="mt-6 space-y-4">
+              <article className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-950">Embudo y prioridad comercial</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">Captura de oportunidades con prioridad visible, puntaje comercial y valor potencial desde un solo flujo.</p>
+              </article>
+              <article className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-950">Seguimiento operativo</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">Actualización de estado, notas, responsables y próximas acciones desde una sola vista operativa.</p>
+              </article>
+              <article className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-950">Control comercial</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">Resumen con metas, ingresos, alertas y accesos directos para la ejecución diaria.</p>
+              </article>
+            </div>
+          </aside>
+        </div>
       </div>
-    </div>
+    </main>
   );
 }
 
