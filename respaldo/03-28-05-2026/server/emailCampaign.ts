@@ -1,4 +1,4 @@
-import { sendMail } from "./mailer";
+import { Resend } from "resend";
 import { getEmailCampaign, getUserById, listLeadsForExport, updateEmailCampaign } from "../db";
 import type { CurrentUser } from "../db";
 
@@ -68,6 +68,8 @@ export async function executeEmailCampaign(campaignId: number, userId: number) {
     return email && email.includes("@");
   });
 
+  const resendKey = process.env.RESEND_API_KEY;
+  const fromEmail = process.env.EMAIL_FROM || "onboarding@resend.dev";
   let successCount = 0;
 
   console.log(`[Campaign] Iniciando envío de campaña "${campaign.name}" a ${leadsWithEmail.length} leads.`);
@@ -75,33 +77,46 @@ export async function executeEmailCampaign(campaignId: number, userId: number) {
   // Actualizar estado a enviando
   await updateEmailCampaign(campaignId, { status: "sending" });
 
-  try {
+  if (resendKey && leadsWithEmail.length > 0) {
+    try {
+      const resend = new Resend(resendKey);
+      
+      for (const lead of leadsWithEmail) {
+        const leadEmail = lead.contactoCorreo || lead.correo;
+        const resolvedSubject = replacePlaceholders(campaign.subject, lead);
+        const resolvedContent = replacePlaceholders(campaign.content, lead);
+
+        try {
+          await resend.emails.send({
+            from: fromEmail,
+            to: [leadEmail],
+            subject: resolvedSubject,
+            text: resolvedContent,
+            html: `<div style="font-family: Arial, sans-serif; color: #111827; line-height: 1.6; font-size: 15px;">
+              ${resolvedContent.replace(/\n/g, "<br>")}
+            </div>`,
+          });
+          successCount++;
+        } catch (err) {
+          console.error(`[Campaign] Error al enviar email a ${leadEmail}:`, err);
+        }
+      }
+    } catch (err) {
+      console.error("[Campaign] Fallo general al inicializar Resend:", err);
+      // En caso de fallo crítico de la SDK, volvemos a poner en draft
+      await updateEmailCampaign(campaignId, { status: "draft" });
+      throw err;
+    }
+  } else {
+    // Modo simulación si no hay API key o si es una prueba local
     for (const lead of leadsWithEmail) {
       const leadEmail = lead.contactoCorreo || lead.correo;
-      if (!leadEmail) continue;
-      
       const resolvedSubject = replacePlaceholders(campaign.subject, lead);
       const resolvedContent = replacePlaceholders(campaign.content, lead);
-
-      const sent = await sendMail({
-        to: leadEmail,
-        subject: resolvedSubject,
-        text: resolvedContent,
-        html: `<div style="font-family: Arial, sans-serif; color: #111827; line-height: 1.6; font-size: 15px;">
-          ${resolvedContent.replace(/\n/g, "<br>")}
-        </div>`,
-      });
-
-      if (sent) {
-        successCount++;
-      } else {
-        console.error(`[Campaign] Error al enviar email a ${leadEmail}`);
-      }
+      
+      console.log(`[SIMULACIÓN ENVIADA] De: ${fromEmail} | Para: ${leadEmail} | Asunto: ${resolvedSubject}`);
+      successCount++;
     }
-  } catch (err) {
-    console.error("[Campaign] Fallo crítico durante el envío de campaña:", err);
-    await updateEmailCampaign(campaignId, { status: "draft" });
-    throw err;
   }
 
   // Actualizar campaña a enviada con sus estadísticas

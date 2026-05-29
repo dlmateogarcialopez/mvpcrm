@@ -1,4 +1,4 @@
-import { sendMail } from "./mailer";
+import { Resend } from "resend";
 import type { AppSettings, Lead } from "../../drizzle/schema";
 import { notifyOwner } from "../_core/notification";
 
@@ -49,25 +49,26 @@ export async function sendLeadOperationalAlert(lead: Lead, settings: AppSettings
 
   const title = buildAlertTitle(lead);
   const body = buildAlertBody(lead);
+  const resendKey = process.env.RESEND_API_KEY;
+  const fromEmail = process.env.ALERT_FROM_EMAIL;
   const toEmail = settings.alertEmailTo?.trim();
 
-  if (settings.emailAlertsEnabled && toEmail) {
+  if (settings.emailAlertsEnabled && resendKey && fromEmail && toEmail) {
     try {
-      const sent = await sendMail({
-        from: process.env.ALERT_FROM_EMAIL,
-        to: toEmail,
+      const resend = new Resend(resendKey);
+      await resend.emails.send({
+        from: fromEmail,
+        to: [toEmail],
         subject: title,
         text: body,
         html: buildAlertHtml(lead),
       });
 
-      if (sent) {
-        return {
-          status: "sent",
-          channel: "email",
-          message: `Alerta enviada por correo a ${toEmail}.`,
-        };
-      }
+      return {
+        status: "sent",
+        channel: "email",
+        message: `Alerta enviada por correo a ${toEmail}.`,
+      };
     } catch (error) {
       console.error("[Alerts] Email delivery error", error);
     }
