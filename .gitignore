@@ -14,6 +14,13 @@ build/
 .env.test.local
 .env.production.local
 
+# Google Cloud / Service Account Credentials
+celtic-parser-*.json
+gcp-*.json
+google-*.json
+*key*.json
+
+
 # IDE and editor files
 .vscode/
 .idea/

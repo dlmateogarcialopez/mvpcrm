@@ -78,77 +78,34 @@ export async function syncLeadCalendarEvent(lead: Lead, settings: AppSettings): 
       status: lead.estadoLead === "perdido" ? "cancelled" : "confirmed",
     };
 
-    let response;
-    try {
-      if (lead.calendarEventId) {
-        response = await calendar.events.update({
-          calendarId,
-          eventId: lead.calendarEventId,
-          requestBody: resource,
-        });
+    if (lead.calendarEventId) {
+      const response = await calendar.events.update({
+        calendarId,
+        eventId: lead.calendarEventId,
+        requestBody: resource,
+      });
 
-        return {
-          status: "synced",
-          action: "update",
-          eventId: response.data.id ?? lead.calendarEventId,
-          eventUrl: response.data.htmlLink ?? lead.calendarEventUrl ?? null,
-          message: "Evento de calendario actualizado correctamente.",
-        };
-      } else {
-        response = await calendar.events.insert({
-          calendarId,
-          requestBody: resource,
-        });
-
-        return {
-          status: "synced",
-          action: "create",
-          eventId: response.data.id ?? null,
-          eventUrl: response.data.htmlLink ?? null,
-          message: "Evento de calendario creado correctamente.",
-        };
-      }
-    } catch (apiError: any) {
-      if (
-        apiError &&
-        typeof apiError.message === "string" &&
-        (apiError.message.includes("Domain-Wide Delegation") || apiError.message.includes("attendees"))
-      ) {
-        console.warn("[Calendar] Reintentando sincronización de evento sin invitar participantes debido a políticas de Google Cloud.");
-        
-        resource.attendees = undefined;
-        
-        if (lead.calendarEventId) {
-          response = await calendar.events.update({
-            calendarId,
-            eventId: lead.calendarEventId,
-            requestBody: resource,
-          });
-
-          return {
-            status: "synced",
-            action: "update",
-            eventId: response.data.id ?? lead.calendarEventId,
-            eventUrl: response.data.htmlLink ?? lead.calendarEventUrl ?? null,
-            message: "Evento actualizado correctamente (sin participantes externos por restricción de cuota).",
-          };
-        } else {
-          response = await calendar.events.insert({
-            calendarId,
-            requestBody: resource,
-          });
-
-          return {
-            status: "synced",
-            action: "create",
-            eventId: response.data.id ?? null,
-            eventUrl: response.data.htmlLink ?? null,
-            message: "Evento creado correctamente (sin participantes externos por restricción de cuota).",
-          };
-        }
-      }
-      throw apiError;
+      return {
+        status: "synced",
+        action: "update",
+        eventId: response.data.id ?? lead.calendarEventId,
+        eventUrl: response.data.htmlLink ?? lead.calendarEventUrl ?? null,
+        message: "Evento de calendario actualizado correctamente.",
+      };
     }
+
+    const response = await calendar.events.insert({
+      calendarId,
+      requestBody: resource,
+    });
+
+    return {
+      status: "synced",
+      action: "create",
+      eventId: response.data.id ?? null,
+      eventUrl: response.data.htmlLink ?? null,
+      message: "Evento de calendario creado correctamente.",
+    };
   } catch (error) {
     console.error("[Calendar] Sync error", error);
     return {
