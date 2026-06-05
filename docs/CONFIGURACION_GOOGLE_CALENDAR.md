@@ -92,3 +92,22 @@ Durante la implementación, incorporamos control de errores avanzado para gestio
 ### ❌ Error 429: Resource has been exhausted (Check quota)
 *   **Causa:** Se ha superado el límite de velocidad por segundo de la API de Google (máximo 5 peticiones/segundo).
 *   **Solución:** Este bloqueo es temporal. Espera de 1 a 2 minutos para que el límite se libere. Al hacer importaciones masivas de Excel, se recomienda desactivar la casilla de Google Calendar en Configuración antes de iniciar el proceso.
+
+---
+
+## 7. Cambio de Destinatarios de Alertas y Calendarios
+
+Si deseas redirigir la sincronización o las notificaciones a una cuenta de correo diferente en el futuro, sigue las siguientes instrucciones:
+
+### A. Para cambiar el calendario de Google donde se registran las visitas:
+1. **Compartir en Google Calendar:** Accede al Google Calendar del nuevo correo destino, ve a *Configuración y uso compartido > Compartir con personas específicas o grupos*, y comparte el calendario con el correo de la cuenta de servicio:
+   `crm-calendar-bot@celtic-parser-498503-v8.iam.gserviceaccount.com`
+   otorgándole permisos de **"Realizar cambios en eventos"**.
+2. **Actualizar en el CRM:** Entra a la interfaz web del CRM, ve a **Configuración** e ingresa el nuevo correo (o ID del calendario secundario) en el campo **ID del calendario**.
+3. **Guardar:** Haz clic en **Guardar cambios** en la parte inferior de la página.
+
+### B. Para cambiar el destinatario de las alertas de nuevos leads:
+1. **Editar en el CRM:** En la sección **Configuración** de la plataforma web, localiza el campo de entrada de texto **Enviar alertas de email a**.
+2. **Modificar:** Escribe la nueva dirección de correo electrónico donde deseas recibir estas notificaciones operativas.
+3. **Guardar:** Haz clic en **Guardar cambios** en la parte inferior de la página.
+
