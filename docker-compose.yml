@@ -10,7 +10,7 @@ services:
     container_name: mv-database
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: ${DB_NAME:-maquina_ventas}
+      MYSQL_DATABASE: ${DB_NAME:-cotizador_leads}
       MYSQL_USER: ${DB_USER:-mv_user}
       MYSQL_PASSWORD: ${DB_PASSWORD:-mv_password}
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_password}
@@ -43,7 +43,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: mysql://${DB_USER:-mv_user}:${DB_PASSWORD:-mv_password}@db:3306/${DB_NAME:-maquina_ventas}
+      DATABASE_URL: mysql://${DB_USER:-mv_user}:${DB_PASSWORD:-mv_password}@db:3306/${DB_NAME:-cotizador_leads}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
