@@ -99,23 +99,7 @@ export const automationRouter = router({
   updateStages: protectedProcedure
     .input(z.array(z.any()))
     .mutation(async ({ input }) => {
-      // Acepta un array de stages con {id, name, displayName, color, order, isActive}
-      // y actualiza la BD en consecuencia.
-      if (!Array.isArray(input) || input.length === 0) {
-        return { success: true };
-      }
-      for (const s of input) {
-        if (s && typeof s.id === "number") {
-          await db.updatePipelineStage(s.id, {
-            name: s.name,
-            displayName: s.displayName,
-            color: s.color,
-            order: s.order,
-            isActive: s.isActive,
-          });
-        }
-      }
-      return { success: true };
+      return db.updatePipelineStages(input);
     }),
 
   // Labels

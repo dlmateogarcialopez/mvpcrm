@@ -7,7 +7,6 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { leadsRouter } from "./routers/leads";
 import { settingsRouter } from "./routers/settings";
 import { automationRouter } from "./routers/automation";
-import { pipelineRouter } from "./routers/pipeline";
 import { hashPassword, verifyPassword } from "./_core/password";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
@@ -17,7 +16,7 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
-
+    
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -91,10 +90,7 @@ export const appRouter = router({
         });
 
         const cookieOptions = getSessionCookieOptions(ctx.req);
-        ctx.res.cookie(COOKIE_NAME, sessionToken, {
-          ...cookieOptions,
-          maxAge: ONE_YEAR_MS,
-        });
+        ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
         return user;
       }),
@@ -119,8 +115,7 @@ export const appRouter = router({
         if (ctx.user.role === "admin" && input.role === "superadmin") {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message:
-              "Solo un superadministrador puede crear otro superadministrador.",
+            message: "Solo un superadministrador puede crear otro superadministrador.",
           });
         }
 
@@ -148,7 +143,6 @@ export const appRouter = router({
   leads: leadsRouter,
   settings: settingsRouter,
   automation: automationRouter,
-  pipeline: pipelineRouter,
 });
 
 export type AppRouter = typeof appRouter;

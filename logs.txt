@@ -1,10 +1,91 @@
-1929  docker exec -it mv-app pnpm add -D drizzle-kit
- 1930  docker exec -it mv-app sh -c 'npx drizzle-kit push --dialect=mysql --schema=./drizzle/schema.ts --url=$DATABASE_URL'
- 1931  docker exec -i mv-database mysql -u mv_user -pmv_password cotizador_leads -e "CREATE TABLE IF NOT EXISTS settingsChangeLogs (id int AUTO_INCREMENT NOT NULL, settingsId int NOT NULL, changedByUserId int, summary varchar(255) NOT NULL, changedFields text NOT NULL, previousSnapshot text NOT NULL, nextSnapshot text NOT NULL, createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT settingsChangeLogs_id PRIMARY KEY(id));"
- 1932  docker exec -i mv-database mysql -u mv_user -pmv_password cotizador_leads -e "show tables;"
- 1933  docker exec -i mv-database mysql -u mv_user -pmv_password cotizador_leads -e "select * from settingsChangeLogs left join users on settingsChangeLogs.changedByUserId = users.id order by settingsChangeLogs.createdAt desc limit 8"
- 1934  docker exec -i mv-database mysql -u mv_user -pmv_password cotizador_leads -e "desc settingsChangeLogs;"
- 1935  docker exec -i mv-database mysql -u mv_user -pmv_password cotizador_leads -e "DROP TABLE IF EXISTS settingsChangeLogs; CREATE TABLE settingsChangeLogs (id int AUTO_INCREMENT NOT NULL, settingsId int NOT NULL, changedByUserId int, summary varchar(255) NOT NULL, changedFields text NOT NULL, previousSnapshot text NOT NULL, nextSnapshot text NOT NULL, createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT settingsChangeLogs_id PRIMARY KEY(id));"
- 1936  nano .env
-
-
+[+] Running 3/3
+ ✔ Container mv-app        Removed                                        11.9s
+ ✔ Container mv-database   Removed                                         4.4s
+ ✔ Network mvp_mv-network  Removed                                         1.0s
+Compose now can delegate build to bake for better performances
+Just set COMPOSE_BAKE=true
+[+] Building 104.5s (19/22)                                      docker:default
+ => [app internal] load build definition from Dockerfile                   0.1s
+ => => transferring dockerfile: 2.05kB                                     0.0s
+ => [app internal] load metadata for docker.io/library/node:20-alpine      1.6s
+ => [app internal] load .dockerignore                                      0.1s
+ => => transferring context: 501B                                          0.1s
+ => [app builder  1/14] FROM docker.io/library/node:20-alpine@sha256:fb4c  0.5s
+ => => resolve docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f  0.1s
+ => => sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a0463 7.67kB / 7.67kB  0.0s
+ => => sha256:afdf98210b07b586eb71fa22ba2e432e058e4cd1304 1.72kB / 1.72kB  0.0s
+ => => sha256:11cedc39e663e7c5d5cb9cc77a461a0d2adc25537b9 6.52kB / 6.52kB  0.0s
+ => [app internal] load build context                                      0.4s
+ => => transferring context: 1.52MB                                        0.2s
+ => [app builder  2/14] WORKDIR /app                                       0.2s
+ => [app builder  3/14] RUN npm install -g pnpm                           10.1s
+ => [app builder  4/14] COPY package.json pnpm-lock.yaml ./                0.1s
+ => [app builder  5/14] COPY patches/ ./patches/                           0.2s
+ => [app runner 6/9] RUN pnpm install --no-frozen-lockfile --prod         62.6s
+ => [app builder  6/14] RUN pnpm install --no-frozen-lockfile             64.2s
+ => [app builder  7/14] COPY tsconfig.json ./                              0.2s
+ => [app builder  8/14] COPY drizzle/ ./drizzle/                           0.2s
+ => [app builder  9/14] COPY shared/ ./shared/                             0.1s
+ => [app builder 10/14] COPY server/ ./server/                             0.2s
+ => [app builder 11/14] COPY client/ ./client/                             0.2s
+ => [app builder 12/14] COPY vite.config.ts ./                             0.2s
+ => [app builder 13/14] COPY components.json ./                            0.2s
+ => ERROR [app builder 14/14] RUN pnpm run build                          25.2s
+------
+ > [app builder 14/14] RUN pnpm run build:
+3.727
+3.727 > cotizador-leads-mvp@1.0.0 build /app
+3.727 > vite build && esbuild server/_core/index.ts --platform=node --packages=e                                                                                                                                                             xternal --bundle --format=esm --outdir=dist --splitting --sourcemap
+3.727
+5.590 vite v7.1.9 building for production...
+5.765 (!) %VITE_ANALYTICS_ENDPOINT% is not defined in env variables found in /in                                                                                                                                                             dex.html. Is the variable mistyped?
+5.767 (!) %VITE_ANALYTICS_WEBSITE_ID% is not defined in env variables found in /                                                                                                                                                             index.html. Is the variable mistyped?
+5.966 transforming...
+22.74 ✓ 1857 modules transformed.
+24.31 rendering chunks...
+24.34 computing gzip size...
+24.41 ../dist/public/index.html                 367.89 kB │ gzip: 105.67 kB
+24.41 ../dist/public/assets/index-a0kpQHll.css  145.19 kB │ gzip:  22.43 kB
+24.41 ../dist/public/assets/index-DgoTCM4D.js   890.90 kB │ gzip: 235.25 kB
+24.41
+24.41 (!) Some chunks are larger than 500 kB after minification. Consider:
+24.41 - Using dynamic import() to code-split the application
+24.41 - Use build.rollupOptions.output.manualChunks to improve chunking: https:/                                                                                                                                                             /rollupjs.org/configuration-options/#output-manualchunks
+24.41 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit                                                                                                                                                             .
+24.41 ✓ built in 18.69s
+24.73 ✘ [ERROR] Could not resolve "../routers"
+24.73
+24.73     server/_core/index.ts:7:26:
+24.73       7 │ import { appRouter } from "../routers";
+24.73         ╵                           ~~~~~~~~~~~~
+24.73
+24.75 1 error
+24.78 node:child_process:930
+24.78     throw err;
+24.78     ^
+24.78
+24.78 Error: Command failed: /app/node_modules/.pnpm/@esbuild+linux-x64@0.25.10/                                                                                                                                                             node_modules/@esbuild/linux-x64/bin/esbuild server/_core/index.ts --platform=nod                                                                                                                                                             e --packages=external --bundle --format=esm --outdir=dist --splitting --sourcema                                                                                                                                                             p
+24.78     at genericNodeError (node:internal/errors:984:15)
+24.78     at wrappedFn (node:internal/errors:538:14)
+24.78     at checkExecSyncError (node:child_process:891:11)
+24.78     at Object.execFileSync (node:child_process:927:15)
+24.78     at Object.<anonymous> (/app/node_modules/.pnpm/esbuild@0.25.10/node_mo                                                                                                                                                             dules/esbuild/bin/esbuild:222:28)
+24.78     at Module._compile (node:internal/modules/cjs/loader:1521:14)
+24.78     at Module._extensions..js (node:internal/modules/cjs/loader:1623:10)
+24.78     at Module.load (node:internal/modules/cjs/loader:1266:32)
+24.78     at Module._load (node:internal/modules/cjs/loader:1091:12)
+24.78     at Function.executeUserEntryPoint [as runMain] (node:internal/modules/                                                                                                                                                             run_main:164:12) {
+24.78   status: 1,
+24.78   signal: null,
+24.78   output: [ null, null, null ],
+24.78   pid: 77,
+24.78   stdout: null,
+24.78   stderr: null
+24.78 }
+24.78
+24.78 Node.js v20.20.2
+24.82  ELIFECYCLE  Command failed with exit code 1.
+------
+failed to solve: process "/bin/sh -c pnpm run build" did not complete successful                                                                                                                                                             ly: exit code: 1
+exit status 1
+root@hostname:~/mvp#
