@@ -13,11 +13,8 @@ import {
   customLabels,
   customChannels,
   automationRules,
-  automationRecipients,
   emailCampaigns,
   type AppSettings,
-  type AutomationRecipient,
-  type InsertAutomationRecipient,
   type Lead,
   type LeadActivity,
   type User,
@@ -2183,67 +2180,4 @@ export async function listProximosAVencerLeadsForUser(
     const diff = row.fechaLimiteGestion - now;
     return diff > 0 && diff <= ms;
   });
-}
-
-/* ============================================================
- * CRUD de destinatarios de automatizaciones (solo superadmin)
- * Usado por los triggers opportunity_* y las acciones send_*_to_user.
- * ============================================================ */
-
-export async function listAutomationRecipients(): Promise<
-  AutomationRecipient[]
-> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  return db
-    .select()
-    .from(automationRecipients)
-    .orderBy(asc(automationRecipients.name));
-}
-
-export async function getAutomationRecipient(
-  id: number
-): Promise<AutomationRecipient | null> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const [row] = await db
-    .select()
-    .from(automationRecipients)
-    .where(eq(automationRecipients.id, id))
-    .limit(1);
-  return row ?? null;
-}
-
-export async function createAutomationRecipient(
-  data: Omit<InsertAutomationRecipient, "id" | "createdAt" | "updatedAt">
-): Promise<AutomationRecipient> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const [row] = await db
-    .insert(automationRecipients)
-    .values(data)
-    .$returningId();
-  if (!row) throw new Error("No fue posible crear el destinatario.");
-  return getAutomationRecipient(row.id) as Promise<AutomationRecipient>;
-}
-
-export async function updateAutomationRecipient(
-  id: number,
-  data: Partial<
-    Omit<InsertAutomationRecipient, "id" | "createdAt" | "updatedAt">
-  >
-): Promise<AutomationRecipient | null> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db
-    .update(automationRecipients)
-    .set(data)
-    .where(eq(automationRecipients.id, id));
-  return getAutomationRecipient(id);
-}
-
-export async function deleteAutomationRecipient(id: number): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.delete(automationRecipients).where(eq(automationRecipients.id, id));
 }

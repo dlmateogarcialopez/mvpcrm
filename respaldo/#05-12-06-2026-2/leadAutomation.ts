@@ -2,10 +2,7 @@ import type { Lead, AutomationRule } from "../../drizzle/schema";
 import * as db from "../db";
 import { sendLeadOperationalAlert } from "./alerts";
 import { syncLeadCalendarEvent } from "./calendar";
-import {
-  sendTelegramAlert,
-  sendTelegramAlertToAgent,
-} from "./telegram.service";
+import { sendTelegramAlert } from "./telegram.service";
 import { sendMail } from "./mailer";
 
 /**
@@ -137,12 +134,6 @@ export function shouldTriggerRule(
       const dias = parseDiasUmbral(rule.triggerCondition);
       return isProximaAVencer(lead, dias);
     }
-    case "opportunity_won":
-      return lead.estadoLead === "ganado";
-    case "opportunity_lost":
-      return lead.estadoLead === "perdido";
-    case "opportunity_proposal_sent":
-      return lead.estadoLead === "propuesta";
     default:
       return false;
   }
@@ -356,88 +347,6 @@ export async function executeRuleAction(rule: any, lead: Lead, userId: number) {
       return { action: "change_status", status: "success", estado: newStatus };
     }
 
-    case "send_telegram_to_user": {
-      const recipient = await resolveRecipient(rule.actionData, lead);
-      if (!recipient?.telegramChatId) {
-        return {
-          action: "send_telegram_to_user",
-          status: "skipped",
-          reason: recipient
-            ? "El destinatario no tiene chatId de Telegram configurado."
-            : "No fue posible resolver el destinatario.",
-        };
-      }
-      const alertType = pickTelegramAlertType(lead);
-      try {
-        await sendTelegramAlertToAgent(recipient.telegramChatId, {
-          type: alertType,
-          leadName: lead.nombreCliente,
-          leadValue: lead.valorTotal,
-          agentName: lead.agenteResponsable || "Sin asignar",
-          city: lead.ciudad || "Sin ciudad",
-          details: lead.motivoPerdido || undefined,
-        });
-        await db.recordAutomationEmail(
-          lead.id,
-          recipient.telegramChatId,
-          `Telegram a ${recipient.name}`,
-          true,
-          userId
-        );
-        return {
-          action: "send_telegram_to_user",
-          status: "sent",
-          recipientId: recipient.id,
-          recipientName: recipient.name,
-        };
-      } catch (error) {
-        console.error(
-          `[Automation] Error Telegram a usuario ${recipient.telegramChatId}:`,
-          error
-        );
-        return {
-          action: "send_telegram_to_user",
-          status: "error",
-          recipientId: recipient.id,
-          reason: error instanceof Error ? error.message : "unknown",
-        };
-      }
-    }
-
-    case "send_email_to_user": {
-      const recipient = await resolveRecipient(rule.actionData, lead);
-      if (!recipient?.email) {
-        return {
-          action: "send_email_to_user",
-          status: "skipped",
-          reason: recipient
-            ? "El destinatario no tiene email configurado."
-            : "No fue posible resolver el destinatario.",
-        };
-      }
-      const subject = `Notificación: ${lead.nombreCliente} → ${lead.estadoLead.toUpperCase()}`;
-      const body = buildStateChangeEmailBody(lead, recipient.name);
-      const ok = await sendMail({
-        to: recipient.email,
-        subject,
-        text: body,
-        html: body.replace(/\n/g, "<br>"),
-      });
-      await db.recordAutomationEmail(
-        lead.id,
-        recipient.email,
-        subject,
-        ok,
-        userId
-      );
-      return {
-        action: "send_email_to_user",
-        status: ok ? "sent" : "error",
-        recipientId: recipient.id,
-        recipientName: recipient.name,
-      };
-    }
-
     default:
       return { action: rule.action, status: "ignored" };
   }
@@ -569,107 +478,4 @@ async function resolveEmailRecipient(
   const settings = await db.getAppSettings();
   if (settings.alertEmailTo) return settings.alertEmailTo;
   return null;
-}
-
-/* ---------------- helpers para destinatarios (opportunity_*) ---------------- */
-
-/**
- * Resuelve el destinatario a partir del actionData de una regla.
- * Formatos aceptidos:
- *   - JSON: { "recipientId": 5 }
- *   - JSON: { "name": "X", "telegramChatId": "...", "email": "..." }  (inline, no persiste)
- *   - Texto plano: "Nombre:chatId" o "Nombre:email"
- * Devuelve null si no puede resolverse.
- */
-async function resolveRecipient(
-  actionData: string | null | undefined,
-  _lead: Lead
-): Promise<{
-  id: number | null;
-  name: string;
-  telegramChatId: string | null;
-  email: string | null;
-} | null> {
-  const raw = (actionData || "").trim();
-  if (!raw) return null;
-
-  // Formato JSON
-  if (raw.startsWith("{")) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed.recipientId) {
-        const r = await db.getAutomationRecipient(Number(parsed.recipientId));
-        if (r && r.isActive) {
-          return {
-            id: r.id,
-            name: r.name,
-            telegramChatId: r.telegramChatId ?? null,
-            email: r.email ?? null,
-          };
-        }
-        return null;
-      }
-      if (parsed.name || parsed.telegramChatId || parsed.email) {
-        return {
-          id: null,
-          name: String(parsed.name ?? "Destinatario inline"),
-          telegramChatId: parsed.telegramChatId
-            ? String(parsed.telegramChatId)
-            : null,
-          email: parsed.email ? String(parsed.email) : null,
-        };
-      }
-    } catch {
-      return null;
-    }
-  }
-
-  // Formato simple "Nombre:chatId" o "Nombre:email"
-  const idx = raw.indexOf(":");
-  if (idx > 0) {
-    const name = raw.slice(0, idx).trim() || "Destinatario";
-    const value = raw.slice(idx + 1).trim();
-    if (!value) return null;
-    const looksLikeEmail = value.includes("@");
-    return {
-      id: null,
-      name,
-      telegramChatId: looksLikeEmail ? null : value,
-      email: looksLikeEmail ? value : null,
-    };
-  }
-
-  return null;
-}
-
-/**
- * Mapea el estado del lead al tipo de alerta de Telegram más coherente.
- */
-function pickTelegramAlertType(
-  lead: Lead
-): "new_lead" | "urgent_lead" | "lead_closed" | "lead_lost" {
-  if (lead.estadoLead === "ganado") return "lead_closed";
-  if (lead.estadoLead === "perdido") return "lead_lost";
-  if (lead.estadoLead === "propuesta") return "urgent_lead";
-  return "urgent_lead";
-}
-
-/**
- * Cuerpo de email estándar para notificaciones de cambio de estado del embudo.
- */
-function buildStateChangeEmailBody(lead: Lead, recipientName: string): string {
-  const fechaLimite = lead.fechaLimiteGestion
-    ? new Date(lead.fechaLimiteGestion).toLocaleString("es-CO")
-    : "Sin fecha límite";
-  return [
-    `Hola ${recipientName},`,
-    ``,
-    `El lead "${lead.nombreCliente}" (${lead.publicId}) cambió de estado a "${lead.estadoLead.toUpperCase()}".`,
-    `Valor total: $${(lead.valorTotal || 0).toLocaleString("es-CO")}.`,
-    `Ciudad: ${lead.ciudad || "Sin ciudad"}.`,
-    `Fecha límite de gestión: ${fechaLimite}.`,
-    `Agente responsable: ${lead.agenteResponsable || "Sin asignar"}.`,
-    ``,
-    `Este mensaje fue generado automáticamente por una regla de automatización.`,
-  ].join("\n");
 }

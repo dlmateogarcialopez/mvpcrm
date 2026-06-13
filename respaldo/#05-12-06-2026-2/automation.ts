@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import * as db from "../db";
 import { executeEmailCampaign } from "../services/emailCampaign";
@@ -8,27 +7,6 @@ import {
   executeRuleAction,
   parseDiasUmbral,
 } from "../services/leadAutomation";
-
-const RESTRICTED_TRIGGERS = new Set([
-  "opportunity_won",
-  "opportunity_lost",
-  "opportunity_proposal_sent",
-]);
-
-const RESTRICTED_ACTIONS = new Set([
-  "send_telegram_to_user",
-  "send_email_to_user",
-]);
-
-function requireSuperadmin(ctx: { user: { role: string } }) {
-  if (ctx.user.role !== "superadmin") {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message:
-        "Solo el superadministrador puede gestionar automatizaciones a destinatarios específicos.",
-    });
-  }
-}
 
 export const automationRouter = router({
   // Pipeline Stages
@@ -193,50 +171,14 @@ export const automationRouter = router({
         isActive: true,
         executionCount: 0,
       });
-      await db.createAutomationRule({
-        name: "Notificar oportunidad ganada",
-        trigger: "opportunity_won",
-        triggerCondition: "",
-        action: "send_email_to_user",
-        actionData: "",
-        isActive: true,
-        executionCount: 0,
-      });
-      await db.createAutomationRule({
-        name: "Notificar oportunidad perdida",
-        trigger: "opportunity_lost",
-        triggerCondition: "",
-        action: "send_email_to_user",
-        actionData: "",
-        isActive: true,
-        executionCount: 0,
-      });
-      await db.createAutomationRule({
-        name: "Notificar propuesta enviada",
-        trigger: "opportunity_proposal_sent",
-        triggerCondition: "",
-        action: "send_email_to_user",
-        actionData: "",
-        isActive: true,
-        executionCount: 0,
-      });
       return db.listAutomationRules();
     }
     return rules;
   }),
 
-  createRule: protectedProcedure
-    .input(z.any())
-    .mutation(async ({ ctx, input }) => {
-      if (
-        input &&
-        (RESTRICTED_TRIGGERS.has(input.trigger) ||
-          RESTRICTED_ACTIONS.has(input.action))
-      ) {
-        requireSuperadmin(ctx);
-      }
-      return db.createAutomationRule(input);
-    }),
+  createRule: protectedProcedure.input(z.any()).mutation(async ({ input }) => {
+    return db.createAutomationRule(input);
+  }),
 
   updateRule: protectedProcedure
     .input(
@@ -251,13 +193,7 @@ export const automationRouter = router({
         isActive: z.boolean().optional(),
       })
     )
-    .mutation(async ({ ctx, input }) => {
-      if (
-        (input.trigger && RESTRICTED_TRIGGERS.has(input.trigger)) ||
-        (input.action && RESTRICTED_ACTIONS.has(input.action))
-      ) {
-        requireSuperadmin(ctx);
-      }
+    .mutation(async ({ input }) => {
       const { id, ...data } = input;
       return db.updateAutomationRule(id, data);
     }),
@@ -331,13 +267,6 @@ export const automationRouter = router({
     const rules = await db.getActiveAutomationRules();
     const overdueLeads = await db.listOverdueLeadsForUser(currentUser);
 
-    // Pool base: leads visibles que están en estados de "oportunidad" ganada/perdida/propuesta.
-    // Sirve para los triggers opportunity_* cuando el operador pulsa "Ejecutar ahora".
-    const allVisible = await db.listLeadsForExport(currentUser);
-    const opportunityLeads = allVisible.filter(l =>
-      ["ganado", "perdido", "propuesta"].includes(l.estadoLead)
-    );
-
     const results: Array<{
       ruleId: number;
       ruleName: string;
@@ -345,17 +274,16 @@ export const automationRouter = router({
       action: string;
       leadId: number;
       leadPublicId: string;
-      pool: "overdue" | "proxima_a_vencer" | "opportunity" | "mixed";
+      pool: "overdue" | "proxima_a_vencer" | "mixed";
       outcome: any;
     }> = [];
 
     for (const rule of rules) {
-      // Pool combinado por regla: vencidos + (si aplica) próximos a vencer + (si aplica) estados oportunidad.
+      // Pool combinado por regla: vencidos + (si aplica) próximos a vencer.
       const pool = new Map<number, db.LeadListItem>();
       for (const l of overdueLeads) pool.set(l.id, l);
 
-      let poolTag: "overdue" | "proxima_a_vencer" | "opportunity" | "mixed" =
-        "overdue";
+      let poolTag: "overdue" | "proxima_a_vencer" | "mixed" = "overdue";
 
       if (rule.trigger === "proxima_a_vencer") {
         const dias = parseDiasUmbral(rule.triggerCondition);
@@ -366,22 +294,10 @@ export const automationRouter = router({
         for (const l of proximos) {
           if (!pool.has(l.id)) pool.set(l.id, l);
         }
-        if (pool.size > overdueLeads.length) {
-          poolTag = overdueLeads.length > 0 ? "mixed" : "proxima_a_vencer";
-        }
-      }
-
-      const isOpportunityTrigger =
-        rule.trigger === "opportunity_won" ||
-        rule.trigger === "opportunity_lost" ||
-        rule.trigger === "opportunity_proposal_sent";
-      if (isOpportunityTrigger) {
-        for (const l of opportunityLeads) {
-          if (!pool.has(l.id)) pool.set(l.id, l);
-        }
-        const baseSize = isOpportunityTrigger ? 0 : overdueLeads.length;
-        if (pool.size > baseSize) {
-          poolTag = baseSize > 0 ? "mixed" : "opportunity";
+        poolTag =
+          pool.size > overdueLeads.length ? "proxima_a_vencer" : "overdue";
+        if (pool.size > overdueLeads.length && overdueLeads.length > 0) {
+          poolTag = "mixed";
         }
       }
 
@@ -429,107 +345,5 @@ export const automationRouter = router({
       executed: results.length,
       results,
     };
-  }),
-
-  // ============================================================
-  // Sub-router: destinatarios de automatizaciones (solo superadmin)
-  // ============================================================
-  recipients: router({
-    list: protectedProcedure
-      .use(async ({ ctx, next }) => {
-        requireSuperadmin(ctx);
-        return next();
-      })
-      .query(async () => {
-        return db.listAutomationRecipients();
-      }),
-
-    create: protectedProcedure
-      .use(async ({ ctx, next }) => {
-        requireSuperadmin(ctx);
-        return next();
-      })
-      .input(
-        z.object({
-          name: z.string().min(1).max(160),
-          telegramChatId: z.string().max(64).optional().nullable(),
-          email: z
-            .string()
-            .email()
-            .max(320)
-            .optional()
-            .nullable()
-            .or(z.literal("")),
-          notes: z.string().optional().nullable(),
-          isActive: z.boolean().optional().default(true),
-        })
-      )
-      .mutation(async ({ input }) => {
-        const telegramChatId = (input.telegramChatId || "").trim() || null;
-        const email = (input.email || "").trim() || null;
-        if (!telegramChatId && !email) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              "El destinatario debe tener al menos un canal: chatId de Telegram o email.",
-          });
-        }
-        return db.createAutomationRecipient({
-          name: input.name.trim(),
-          telegramChatId,
-          email,
-          notes: input.notes ?? null,
-          isActive: input.isActive ?? true,
-        });
-      }),
-
-    update: protectedProcedure
-      .use(async ({ ctx, next }) => {
-        requireSuperadmin(ctx);
-        return next();
-      })
-      .input(
-        z.object({
-          id: z.number(),
-          name: z.string().min(1).max(160).optional(),
-          telegramChatId: z.string().max(64).optional().nullable(),
-          email: z
-            .string()
-            .email()
-            .max(320)
-            .optional()
-            .nullable()
-            .or(z.literal("")),
-          notes: z.string().optional().nullable(),
-          isActive: z.boolean().optional(),
-        })
-      )
-      .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        const patch: Record<string, unknown> = { ...data };
-        if ("telegramChatId" in patch) {
-          patch.telegramChatId =
-            (patch.telegramChatId as string | null | undefined)?.trim() || null;
-        }
-        if ("email" in patch) {
-          patch.email =
-            (patch.email as string | null | undefined)?.trim() || null;
-        }
-        if ("name" in patch && typeof patch.name === "string") {
-          patch.name = patch.name.trim();
-        }
-        return db.updateAutomationRecipient(id, patch);
-      }),
-
-    delete: protectedProcedure
-      .use(async ({ ctx, next }) => {
-        requireSuperadmin(ctx);
-        return next();
-      })
-      .input(z.number())
-      .mutation(async ({ input }) => {
-        await db.deleteAutomationRecipient(input);
-        return { success: true };
-      }),
   }),
 });

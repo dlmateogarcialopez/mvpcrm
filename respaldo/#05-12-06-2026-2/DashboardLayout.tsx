@@ -21,72 +21,18 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import {
-  BarChart3,
-  CalendarClock,
-  LogOut,
-  PanelLeft,
-  Settings2,
-  Kanban,
-  Zap,
-  Mail,
-  Loader2,
-  UserCog,
-} from "lucide-react";
-import React, {
-  CSSProperties,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { BarChart3, CalendarClock, LogOut, PanelLeft, Settings2, Kanban, Zap, Mail, Loader2 } from "lucide-react";
+import React, { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
 const menuItems = [
-  {
-    icon: BarChart3,
-    label: "Resumen",
-    path: "/",
-    description: "Ejecución comercial",
-  },
-  {
-    icon: CalendarClock,
-    label: "Oportunidades",
-    path: "/leads",
-    description: "Embudo y seguimiento",
-  },
-  {
-    icon: Kanban,
-    label: "Embudo",
-    path: "/embudo",
-    description: "Vista visual del pipeline",
-  },
-  {
-    icon: Zap,
-    label: "Automatizaciones",
-    path: "/automatizaciones",
-    description: "Reglas y flujos automáticos",
-  },
-  {
-    icon: UserCog,
-    label: "Destinatarios",
-    path: "/automatizaciones/destinatarios",
-    description: "Libreta de notificaciones",
-    superadminOnly: true,
-  },
-  {
-    icon: Mail,
-    label: "Email Marketing",
-    path: "/email-marketing",
-    description: "Campañas de email",
-  },
-  {
-    icon: Settings2,
-    label: "Configuración",
-    path: "/configuracion",
-    description: "Equipo, metas y reglas",
-  },
+  { icon: BarChart3, label: "Resumen", path: "/", description: "Ejecución comercial" },
+  { icon: CalendarClock, label: "Oportunidades", path: "/leads", description: "Embudo y seguimiento" },
+  { icon: Kanban, label: "Embudo", path: "/embudo", description: "Vista visual del pipeline" },
+  { icon: Zap, label: "Automatizaciones", path: "/automatizaciones", description: "Reglas y flujos automáticos" },
+  { icon: Mail, label: "Email Marketing", path: "/email-marketing", description: "Campañas de email" },
+  { icon: Settings2, label: "Configuración", path: "/configuracion", description: "Equipo, metas y reglas" },
 ];
 
 const roleLabels: Record<string, string> = {
@@ -98,8 +44,7 @@ const roleLabels: Record<string, string> = {
 
 const roleDescriptions: Record<string, string> = {
   guest: "Consulta y captura básica sobre sus propias oportunidades.",
-  agent:
-    "Gestiona seguimiento, actividades y avance diario del embudo comercial.",
+  agent: "Gestiona seguimiento, actividades y avance diario del embudo comercial.",
   admin: "Administra equipo, reglas comerciales y control operativo.",
   superadmin: "Control total del CRM, permisos y configuración sensible.",
 };
@@ -146,9 +91,7 @@ export default function DashboardLayout({
         } as CSSProperties
       }
     >
-      <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
-        {children}
-      </DashboardLayoutContent>
+      <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>{children}</DashboardLayoutContent>
     </SidebarProvider>
   );
 }
@@ -175,22 +118,14 @@ type DashboardLayoutContentProps = {
   setSidebarWidth: (width: number) => void;
 };
 
-function DashboardLayoutContent({
-  children,
-  setSidebarWidth,
-}: DashboardLayoutContentProps) {
+function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem =
-    menuItems.find(item => item.path === location) ?? menuItems[0];
-  const visibleMenuItems = menuItems.filter(item => {
-    if (item.superadminOnly) return user?.role === "superadmin";
-    return true;
-  });
+  const activeMenuItem = menuItems.find(item => item.path === location) ?? menuItems[0];
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -232,11 +167,7 @@ function DashboardLayoutContent({
   return (
     <>
       <div className="relative" ref={sidebarRef}>
-        <Sidebar
-          collapsible="icon"
-          className="border-r border-sidebar-border/70 bg-sidebar"
-          disableTransition={isResizing}
-        >
+        <Sidebar collapsible="icon" className="border-r border-sidebar-border/70 bg-sidebar" disableTransition={isResizing}>
           <SidebarHeader className="h-16 justify-center border-b border-sidebar-border/70 px-3">
             <div className="flex items-center gap-3 transition-all w-full">
               <button
@@ -248,12 +179,8 @@ function DashboardLayoutContent({
               </button>
               {!isCollapsed ? (
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-sidebar-foreground/70">
-                    CRM comercial
-                  </p>
-                  <p className="truncate text-base font-semibold tracking-tight text-sidebar-foreground">
-                    Máquina de ventas
-                  </p>
+                  <p className="truncate text-sm font-medium text-sidebar-foreground/70">CRM comercial</p>
+                  <p className="truncate text-base font-semibold tracking-tight text-sidebar-foreground">Máquina de ventas</p>
                 </div>
               ) : null}
             </div>
@@ -261,7 +188,7 @@ function DashboardLayoutContent({
 
           <SidebarContent className="gap-0 px-2 py-4">
             <SidebarMenu>
-              {visibleMenuItems.map(item => {
+              {menuItems.map(item => {
                 const isActive = location === item.path;
                 return (
                   <SidebarMenuItem key={item.path}>
@@ -271,16 +198,10 @@ function DashboardLayoutContent({
                       tooltip={item.label}
                       className="h-12 rounded-xl font-normal"
                     >
-                      <item.icon
-                        className={`h-4 w-4 ${isActive ? "text-primary" : "text-sidebar-foreground/80"}`}
-                      />
+                      <item.icon className={`h-4 w-4 ${isActive ? "text-primary" : "text-sidebar-foreground/80"}`} />
                       <div className="flex min-w-0 flex-col text-left group-data-[collapsible=icon]:hidden">
-                        <span className="truncate text-sm font-medium">
-                          {item.label}
-                        </span>
-                        <span className="truncate text-xs text-muted-foreground">
-                          {item.description}
-                        </span>
+                        <span className="truncate text-sm font-medium">{item.label}</span>
+                        <span className="truncate text-xs text-muted-foreground">{item.description}</span>
                       </div>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -295,35 +216,25 @@ function DashboardLayoutContent({
                 <button className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-sidebar-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center">
                   <Avatar className="h-9 w-9 border shrink-0">
                     <AvatarFallback className="text-xs font-medium">
-                      {user?.name?.charAt(0).toUpperCase() ??
-                        user?.email?.charAt(0).toUpperCase() ??
-                        "U"}
+                      {user?.name?.charAt(0).toUpperCase() ?? user?.email?.charAt(0).toUpperCase() ?? "U"}
                     </AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
                     <div className="flex items-center gap-2">
-                      <p className="truncate text-sm font-medium leading-none text-sidebar-foreground">
-                        {user?.name || "Usuario"}
-                      </p>
+                      <p className="truncate text-sm font-medium leading-none text-sidebar-foreground">{user?.name || "Usuario"}</p>
                       <span className="inline-flex shrink-0 rounded-full border border-sidebar-border/80 bg-sidebar-accent px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-foreground/80">
                         {roleLabels[user?.role ?? "guest"] ?? "Usuario"}
                       </span>
                     </div>
-                    <p className="mt-1.5 truncate text-xs text-muted-foreground">
-                      {user?.email || "Sin correo"}
-                    </p>
+                    <p className="mt-1.5 truncate text-xs text-muted-foreground">{user?.email || "Sin correo"}</p>
                     <p className="mt-1 truncate text-[11px] leading-4 text-muted-foreground/90">
-                      {roleDescriptions[user?.role ?? "guest"] ??
-                        "Acceso operativo al CRM comercial."}
+                      {roleDescriptions[user?.role ?? "guest"] ?? "Acceso operativo al CRM comercial."}
                     </p>
                   </div>
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem
-                  onClick={logout}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
+                <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
                   <LogOut className="mr-2 h-4 w-4" />
                   <span>Cerrar sesión</span>
                 </DropdownMenuItem>
@@ -347,12 +258,8 @@ function DashboardLayoutContent({
             <div className="flex items-center gap-2">
               <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
               <div>
-                <p className="text-sm font-medium leading-none">
-                  {activeMenuItem.label}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {activeMenuItem.description}
-                </p>
+                <p className="text-sm font-medium leading-none">{activeMenuItem.label}</p>
+                <p className="text-xs text-muted-foreground">{activeMenuItem.description}</p>
               </div>
             </div>
           </div>

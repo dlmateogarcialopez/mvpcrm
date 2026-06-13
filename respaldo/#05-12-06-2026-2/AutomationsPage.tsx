@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import {
   Plus,
   Trash2,
@@ -9,13 +9,11 @@ import {
   Pause,
   BarChart3,
   Loader2,
-  User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "../lib/trpc";
 import { toast } from "sonner";
-import { useAuth } from "@/_core/hooks/useAuth";
 
 interface Automation {
   id: number;
@@ -26,7 +24,6 @@ interface Automation {
   executionCount: number | null;
   lastExecutedAt?: string | null | Date;
   triggerCondition?: string | null;
-  actionData?: string | null;
 }
 
 const TRIGGERS = [
@@ -39,21 +36,6 @@ const TRIGGERS = [
     label: "Cuando faltan N días para vencer la gestión",
   },
   { value: "daily_schedule", label: "Diariamente a las..." },
-  {
-    value: "opportunity_won",
-    label: "Cuando un lead pasa a GANADO",
-    superadminOnly: true,
-  },
-  {
-    value: "opportunity_lost",
-    label: "Cuando un lead pasa a PERDIDO",
-    superadminOnly: true,
-  },
-  {
-    value: "opportunity_proposal_sent",
-    label: "Cuando se envía propuesta",
-    superadminOnly: true,
-  },
 ];
 
 const ACTIONS = [
@@ -62,52 +44,14 @@ const ACTIONS = [
   { value: "send_telegram", label: "Enviar alerta por Telegram" },
   { value: "add_label", label: "Añadir etiqueta" },
   { value: "change_status", label: "Cambiar estado" },
-  {
-    value: "send_telegram_to_user",
-    label: "Enviar Telegram a destinatario",
-    superadminOnly: true,
-  },
-  {
-    value: "send_email_to_user",
-    label: "Enviar email a destinatario",
-    superadminOnly: true,
-  },
 ];
 
 export function AutomationsPage() {
   const utils = trpc.useUtils();
-  const { user } = useAuth();
-  const isSuperadmin = user?.role === "superadmin";
-
-  const visibleTriggers = useMemo(
-    () => TRIGGERS.filter(t => isSuperadmin || !t.superadminOnly),
-    [isSuperadmin]
-  );
-  const visibleActions = useMemo(
-    () => ACTIONS.filter(a => isSuperadmin || !a.superadminOnly),
-    [isSuperadmin]
-  );
-
   const rulesQuery = trpc.automation.listRules.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
   const rules = rulesQuery.data ?? [];
-
-  const recipientsQuery = trpc.automation.recipients.list.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    enabled: isSuperadmin,
-  });
-  const recipients = recipientsQuery.data ?? [];
-
-  const createRecipientMutation = trpc.automation.recipients.create.useMutation(
-    {
-      onSuccess: () => {
-        utils.automation.recipients.list.invalidate();
-        toast.success("Destinatario creado");
-      },
-      onError: e => toast.error(`Error al crear destinatario: ${e.message}`),
-    }
-  );
 
   const createMutation = trpc.automation.createRule.useMutation({
     onSuccess: () => {
@@ -156,7 +100,6 @@ export function AutomationsPage() {
   const [editingTrigger, setEditingTrigger] = useState("");
   const [editingAction, setEditingAction] = useState("");
   const [editingTriggerCondition, setEditingTriggerCondition] = useState("");
-  const [editingActionData, setEditingActionData] = useState("");
 
   const handleAddAutomation = () => {
     createMutation.mutate({
@@ -186,7 +129,6 @@ export function AutomationsPage() {
     setEditingTrigger(automation.trigger);
     setEditingAction(automation.action);
     setEditingTriggerCondition(automation.triggerCondition ?? "");
-    setEditingActionData(automation.actionData ?? "");
   };
 
   const handleEditSave = () => {
@@ -196,17 +138,12 @@ export function AutomationsPage() {
         editingTrigger === "label_added" ||
         editingTrigger === "status_changed";
 
-      const usesActionDataRecipient =
-        editingAction === "send_telegram_to_user" ||
-        editingAction === "send_email_to_user";
-
       updateMutation.mutate({
         id: editingId,
         name: editingName,
         trigger: editingTrigger,
         action: editingAction,
         triggerCondition: usesCondition ? editingTriggerCondition : "",
-        actionData: usesActionDataRecipient ? editingActionData : "",
       });
       setEditingId(null);
     }
@@ -299,7 +236,7 @@ export function AutomationsPage() {
                     onChange={e => setEditingTrigger(e.target.value)}
                     className="rounded border bg-background px-3 py-2"
                   >
-                    {visibleTriggers.map(t => (
+                    {TRIGGERS.map(t => (
                       <option key={t.value} value={t.value}>
                         {t.label}
                       </option>
@@ -310,7 +247,7 @@ export function AutomationsPage() {
                     onChange={e => setEditingAction(e.target.value)}
                     className="rounded border bg-background px-3 py-2"
                   >
-                    {visibleActions.map(a => (
+                    {ACTIONS.map(a => (
                       <option key={a.value} value={a.value}>
                         {a.label}
                       </option>
@@ -369,25 +306,6 @@ export function AutomationsPage() {
                       placeholder="Estado a detectar (ej. pausado) — vacío = todos"
                     />
                   </div>
-                )}
-
-                {(editingAction === "send_telegram_to_user" ||
-                  editingAction === "send_email_to_user") && (
-                  <RecipientPickerSection
-                    recipients={recipients}
-                    value={editingActionData}
-                    onChange={setEditingActionData}
-                    onCreateInline={async payload => {
-                      const created =
-                        await createRecipientMutation.mutateAsync(payload);
-                      return created;
-                    }}
-                    channel={
-                      editingAction === "send_telegram_to_user"
-                        ? "telegram"
-                        : "email"
-                    }
-                  />
                 )}
 
                 <div className="flex gap-2">
@@ -488,163 +406,6 @@ export function AutomationsPage() {
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-interface RecipientLite {
-  id: number;
-  name: string;
-  telegramChatId: string | null;
-  email: string | null;
-  isActive: boolean | null;
-}
-
-interface RecipientPickerSectionProps {
-  recipients: RecipientLite[];
-  value: string;
-  onChange: (v: string) => void;
-  onCreateInline: (payload: {
-    name: string;
-    telegramChatId: string | null;
-    email: string | null;
-    notes: string | null;
-    isActive: boolean;
-  }) => Promise<{ id: number; name: string }>;
-  channel: "telegram" | "email";
-}
-
-function RecipientPickerSection({
-  recipients,
-  value,
-  onChange,
-  onCreateInline,
-  channel,
-}: RecipientPickerSectionProps) {
-  const [showNew, setShowNew] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newTelegram, setNewTelegram] = useState("");
-  const [newEmail, setNewEmail] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  // Resolver recipientId actual desde el value
-  const currentId = useMemo(() => {
-    if (!value) return null;
-    try {
-      const parsed = JSON.parse(value);
-      return parsed?.recipientId ?? null;
-    } catch {
-      return null;
-    }
-  }, [value]);
-
-  const handleCreate = async () => {
-    if (!newName.trim()) return;
-    if (channel === "telegram" && !newTelegram.trim()) return;
-    if (channel === "email" && !newEmail.trim()) return;
-    setSaving(true);
-    try {
-      const created = await onCreateInline({
-        name: newName.trim(),
-        telegramChatId: channel === "telegram" ? newTelegram.trim() : null,
-        email: channel === "email" ? newEmail.trim() : null,
-        notes: null,
-        isActive: true,
-      });
-      onChange(JSON.stringify({ recipientId: created.id }));
-      setNewName("");
-      setNewTelegram("");
-      setNewEmail("");
-      setShowNew(false);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="space-y-2 rounded-2xl border bg-muted/20 p-3">
-      <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-        <User className="h-3 w-3" />
-        Destinatario {channel === "telegram" ? "(Telegram)" : "(Email)"}
-      </label>
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          value={currentId ?? ""}
-          onChange={e => {
-            const id = e.target.value;
-            onChange(id ? JSON.stringify({ recipientId: Number(id) }) : "");
-          }}
-          className="rounded border bg-background px-3 py-2 flex-1 min-w-[180px]"
-        >
-          <option value="">— Selecciona un destinatario —</option>
-          {recipients.map(r => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-              {r.isActive === false ? " (inactivo)" : ""} —{" "}
-              {channel === "telegram"
-                ? r.telegramChatId || "(sin chatId)"
-                : r.email || "(sin email)"}
-            </option>
-          ))}
-        </select>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => setShowNew(s => !s)}
-        >
-          {showNew ? "Cancelar" : "+ Nuevo destinatario"}
-        </Button>
-      </div>
-
-      {showNew && (
-        <div className="space-y-2 rounded-xl border bg-card p-3">
-          <div className="grid gap-2 md:grid-cols-2">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">
-                Nombre *
-              </label>
-              <Input
-                value={newName}
-                onChange={e => setNewName(e.target.value)}
-                placeholder="Nombre del destinatario"
-              />
-            </div>
-            {channel === "telegram" ? (
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Chat ID *
-                </label>
-                <Input
-                  value={newTelegram}
-                  onChange={e => setNewTelegram(e.target.value)}
-                  placeholder="123456789"
-                />
-              </div>
-            ) : (
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Email *
-                </label>
-                <Input
-                  type="email"
-                  value={newEmail}
-                  onChange={e => setNewEmail(e.target.value)}
-                  placeholder="persona@empresa.com"
-                />
-              </div>
-            )}
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            onClick={handleCreate}
-            disabled={saving}
-          >
-            {saving ? "Creando..." : "Crear y seleccionar"}
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

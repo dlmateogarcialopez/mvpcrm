@@ -13,11 +13,8 @@ import {
   customLabels,
   customChannels,
   automationRules,
-  automationRecipients,
   emailCampaigns,
   type AppSettings,
-  type AutomationRecipient,
-  type InsertAutomationRecipient,
   type Lead,
   type LeadActivity,
   type User,
@@ -91,9 +88,7 @@ function normalizeText(value: string | null | undefined) {
 }
 
 function normalizeTimestamp(value: number | null | undefined) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? value
-    : null;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function serializePayload(payload: unknown) {
@@ -110,37 +105,20 @@ function isSuperAdmin(role: AppRole) {
 }
 
 function getDisplayName(user: Pick<User, "name" | "email"> | CurrentUser) {
-  return (
-    normalizeText(user.name) ?? normalizeText(user.email) ?? "Equipo comercial"
-  );
+  return normalizeText(user.name) ?? normalizeText(user.email) ?? "Equipo comercial";
 }
 
 export function buildLeadContactBlock(
-  row: Pick<
-    Lead,
-    | "nombreCliente"
-    | "telefono"
-    | "correo"
-    | "contactoNombre"
-    | "contactoTelefono"
-    | "contactoCorreo"
-  >
+  row: Pick<Lead, "nombreCliente" | "telefono" | "correo" | "contactoNombre" | "contactoTelefono" | "contactoCorreo">,
 ): LeadContactBlock {
   return {
     nombre: row.contactoNombre?.trim() || row.nombreCliente.trim(),
     telefono: row.contactoTelefono?.trim() || row.telefono.trim(),
-    correo:
-      row.contactoCorreo?.trim().toLowerCase() ||
-      row.correo.trim().toLowerCase(),
+    correo: row.contactoCorreo?.trim().toLowerCase() || row.correo.trim().toLowerCase(),
   };
 }
 
-export function buildLeadCompanyBlock(
-  row: Pick<
-    Lead,
-    "nombreEmpresa" | "ciudad" | "empresaNombre" | "empresaCiudad"
-  >
-): LeadCompanyBlock {
+export function buildLeadCompanyBlock(row: Pick<Lead, "nombreEmpresa" | "ciudad" | "empresaNombre" | "empresaCiudad">): LeadCompanyBlock {
   return {
     nombre: row.empresaNombre?.trim() || row.nombreEmpresa?.trim() || "",
     ciudad: row.empresaCiudad?.trim() || row.ciudad?.trim() || "",
@@ -171,9 +149,7 @@ const settingsFieldLabels: Record<keyof AppSettingsInput, string> = {
   alertSmsTo: "Número de alertas SMS",
 };
 
-function mergeBusinessSettings(
-  record: AppSettings | null | undefined
-): LeadBusinessSettings {
+function mergeBusinessSettings(record: AppSettings | null | undefined): LeadBusinessSettings {
   if (!record) {
     return { ...defaultBusinessSettings };
   }
@@ -198,16 +174,11 @@ function mergeBusinessSettings(
 
 function enrichLead(row: Lead): LeadListItem {
   const now = Date.now();
-  const diasHastaVisita = row.fechaVisita
-    ? Math.max(0, Math.floor((row.fechaVisita - now) / (1000 * 60 * 60 * 24)))
-    : null;
-  const horasDesdeUltimaGestion = row.ultimaGestion
-    ? Math.max(0, Math.floor((now - row.ultimaGestion) / (1000 * 60 * 60)))
-    : null;
+  const diasHastaVisita = row.fechaVisita ? Math.max(0, Math.floor((row.fechaVisita - now) / (1000 * 60 * 60 * 24))) : null;
+  const horasDesdeUltimaGestion = row.ultimaGestion ? Math.max(0, Math.floor((now - row.ultimaGestion) / (1000 * 60 * 60))) : null;
   const normalizedStatus = normalizeLeadStatus(row.estadoLead);
   const isClosed = ["ganado", "perdido"].includes(normalizedStatus);
-  const isOverdue =
-    !!row.fechaLimiteGestion && row.fechaLimiteGestion < now && !isClosed;
+  const isOverdue = !!row.fechaLimiteGestion && row.fechaLimiteGestion < now && !isClosed;
 
   return {
     ...row,
@@ -229,33 +200,19 @@ function matchesLeadFilters(row: LeadListItem, filters: LeadFiltersInput) {
     return false;
   }
 
-  if (
-    filters.canalOrigen !== "todos" &&
-    row.canalOrigen !== filters.canalOrigen
-  ) {
+  if (filters.canalOrigen !== "todos" && row.canalOrigen !== filters.canalOrigen) {
     return false;
   }
 
-  if (
-    filters.tipoEvento !== "todos" &&
-    normalizeLeadTravelReason(row.tipoEvento) !== filters.tipoEvento
-  ) {
+  if (filters.tipoEvento !== "todos" && normalizeLeadTravelReason(row.tipoEvento) !== filters.tipoEvento) {
     return false;
   }
 
-  if (
-    filters.agenteUserId !== "todos" &&
-    row.agenteUserId !== filters.agenteUserId
-  ) {
+  if (filters.agenteUserId !== "todos" && row.agenteUserId !== filters.agenteUserId) {
     return false;
   }
 
-  if (
-    filters.ciudad.trim() &&
-    !(row.ciudad ?? "")
-      .toLowerCase()
-      .includes(filters.ciudad.trim().toLowerCase())
-  ) {
+  if (filters.ciudad.trim() && !(row.ciudad ?? "").toLowerCase().includes(filters.ciudad.trim().toLowerCase())) {
     return false;
   }
 
@@ -327,36 +284,24 @@ function canUserAccessLead(row: Lead, user: CurrentUser) {
   return row.agenteUserId === user.id || row.createdByUserId === user.id;
 }
 
-function ensureStatusRequirements(
-  status: Lead["estadoLead"],
-  motivoPerdido?: string | null,
-  motivoPausa?: string | null
-) {
+function ensureStatusRequirements(status: Lead["estadoLead"], motivoPerdido?: string | null, motivoPausa?: string | null) {
   if (status === "perdido") {
     if (!normalizeText(motivoPerdido)) {
-      throw new Error(
-        "Debes registrar el motivo de pérdida antes de marcar el lead como perdido."
-      );
+      throw new Error("Debes registrar el motivo de pérdida antes de marcar el lead como perdido.");
     }
 
     if (!isStructuredLeadReason(motivoPerdido, leadLostReasonOptions)) {
-      throw new Error(
-        "Selecciona un motivo de pérdida válido del catálogo antes de marcar el lead como perdido."
-      );
+      throw new Error("Selecciona un motivo de pérdida válido del catálogo antes de marcar el lead como perdido.");
     }
   }
 
   if (status === "pausado") {
     if (!normalizeText(motivoPausa)) {
-      throw new Error(
-        "Debes registrar el motivo de pausa antes de pausar el lead."
-      );
+      throw new Error("Debes registrar el motivo de pausa antes de pausar el lead.");
     }
 
     if (!isStructuredLeadReason(motivoPausa, leadPausedReasonOptions)) {
-      throw new Error(
-        "Selecciona un motivo de pausa válido del catálogo antes de pausar el lead."
-      );
+      throw new Error("Selecciona un motivo de pausa válido del catálogo antes de pausar el lead.");
     }
   }
 }
@@ -367,11 +312,7 @@ async function ensureDefaultSettingsRecord() {
     throw new Error("Database not available");
   }
 
-  const existing = await db
-    .select()
-    .from(appSettings)
-    .where(eq(appSettings.isDefault, true))
-    .limit(1);
+  const existing = await db.select().from(appSettings).where(eq(appSettings.isDefault, true)).limit(1);
   if (existing[0]) {
     return existing[0];
   }
@@ -382,11 +323,7 @@ async function ensureDefaultSettingsRecord() {
     ...defaultBusinessSettings,
   });
 
-  const created = await db
-    .select()
-    .from(appSettings)
-    .where(eq(appSettings.isDefault, true))
-    .limit(1);
+  const created = await db.select().from(appSettings).where(eq(appSettings.isDefault, true)).limit(1);
   if (!created[0]) {
     throw new Error("Default settings could not be created");
   }
@@ -425,10 +362,7 @@ type SensitiveLeadChange = {
   after: string;
 };
 
-function formatLeadAuditValue(
-  value: string | number | null | undefined,
-  kind: "text" | "currency" | "datetime" = "text"
-) {
+function formatLeadAuditValue(value: string | number | null | undefined, kind: "text" | "currency" | "datetime" = "text") {
   if (value === null || value === undefined || value === "") {
     return "sin dato";
   }
@@ -470,16 +404,10 @@ function collectSensitiveLeadChanges(params: {
     });
   }
 
-  if (
-    (params.existing.fechaLimiteGestion ?? null) !==
-    params.next.fechaLimiteGestion
-  ) {
+  if ((params.existing.fechaLimiteGestion ?? null) !== params.next.fechaLimiteGestion) {
     changes.push({
       label: "fecha compromiso",
-      before: formatLeadAuditValue(
-        params.existing.fechaLimiteGestion,
-        "datetime"
-      ),
+      before: formatLeadAuditValue(params.existing.fechaLimiteGestion, "datetime"),
       after: formatLeadAuditValue(params.next.fechaLimiteGestion, "datetime"),
     });
   }
@@ -527,11 +455,7 @@ function collectSensitiveLeadChanges(params: {
   return changes;
 }
 
-async function updateLeadActivityTimestamp(
-  leadId: number,
-  updatedByUserId: number,
-  timestampMs = Date.now()
-) {
+async function updateLeadActivityTimestamp(leadId: number, updatedByUserId: number, timestampMs = Date.now()) {
   const db = await getDb();
   if (!db) {
     throw new Error("Database not available");
@@ -560,9 +484,7 @@ async function resolveAssignee(params: {
 
   const managerCanReassign = isManagerRole(params.currentUser.role);
   const candidateUserId = managerCanReassign
-    ? (params.requestedUserId ??
-      params.existingLead?.agenteUserId ??
-      params.currentUser.id)
+    ? (params.requestedUserId ?? params.existingLead?.agenteUserId ?? params.currentUser.id)
     : (params.existingLead?.agenteUserId ?? params.currentUser.id);
 
   if (!candidateUserId) {
@@ -575,11 +497,7 @@ async function resolveAssignee(params: {
     };
   }
 
-  const [assignee] = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, candidateUserId))
-    .limit(1);
+  const [assignee] = await db.select().from(users).where(eq(users.id, candidateUserId)).limit(1);
 
   if (!assignee) {
     return {
@@ -603,10 +521,7 @@ async function listVisibleLeadRows(user: CurrentUser) {
     throw new Error("Database not available");
   }
 
-  const rows = await db
-    .select()
-    .from(leads)
-    .orderBy(desc(leads.updatedAt), desc(leads.fechaVisita));
+  const rows = await db.select().from(leads).orderBy(desc(leads.updatedAt), desc(leads.fechaVisita));
   return rows.filter(row => canUserAccessLead(row, user));
 }
 
@@ -678,12 +593,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     };
     const updateSet: Record<string, unknown> = {};
 
-    const textFields = [
-      "name",
-      "email",
-      "loginMethod",
-      "passwordHash",
-    ] as const;
+    const textFields = ["name", "email", "loginMethod", "passwordHash"] as const;
     type TextField = (typeof textFields)[number];
 
     const assignNullable = (field: TextField) => {
@@ -735,11 +645,7 @@ export async function getUserByOpenId(openId: string) {
     return undefined;
   }
 
-  const result = await db
-    .select()
-    .from(users)
-    .where(eq(users.openId, openId))
-    .limit(1);
+  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
@@ -813,10 +719,7 @@ function normalizeSettingsInput(input: AppSettingsInput) {
   };
 }
 
-function formatSettingsFieldValue(
-  field: keyof AppSettingsInput,
-  value: AppSettingsInput[keyof AppSettingsInput] | null | undefined
-) {
+function formatSettingsFieldValue(field: keyof AppSettingsInput, value: AppSettingsInput[keyof AppSettingsInput] | null | undefined) {
   if (value === null || value === undefined || value === "") {
     return null;
   }
@@ -832,10 +735,7 @@ function formatSettingsFieldValue(
   return String(value);
 }
 
-function buildSettingsChangeFields(
-  previous: AppSettingsInput,
-  next: AppSettingsInput
-): SettingsChangeField[] {
+function buildSettingsChangeFields(previous: AppSettingsInput, next: AppSettingsInput): SettingsChangeField[] {
   return (Object.keys(settingsFieldLabels) as Array<keyof AppSettingsInput>)
     .filter(field => previous[field] !== next[field])
     .map(field => ({
@@ -866,14 +766,8 @@ function parseSettingsChangeFields(raw: string): SettingsChangeField[] {
           .map(item => ({
             field: typeof item.field === "string" ? item.field : "campo",
             label: typeof item.label === "string" ? item.label : "Campo",
-            previous:
-              typeof item.previous === "string" || item.previous === null
-                ? item.previous
-                : null,
-            next:
-              typeof item.next === "string" || item.next === null
-                ? item.next
-                : null,
+            previous: typeof item.previous === "string" || item.previous === null ? item.previous : null,
+            next: typeof item.next === "string" || item.next === null ? item.next : null,
           }))
       : [];
   } catch {
@@ -885,9 +779,7 @@ export async function getAppSettings() {
   return ensureDefaultSettingsRecord();
 }
 
-export async function getAppSettingsHistory(
-  limit = 8
-): Promise<SettingsChangeLogItem[]> {
+export async function getAppSettingsHistory(limit = 8): Promise<SettingsChangeLogItem[]> {
   const db = await getDb();
   if (!db) {
     throw new Error("Database not available");
@@ -910,10 +802,7 @@ export async function getAppSettingsHistory(
     return {
       id: log.id,
       changedAt: log.createdAt.getTime(),
-      changedByName:
-        normalizeText(changedByName) ??
-        normalizeText(changedByEmail) ??
-        "Sistema",
+      changedByName: normalizeText(changedByName) ?? normalizeText(changedByEmail) ?? "Sistema",
       changedByEmail: normalizeText(changedByEmail),
       summary: log.summary,
       changeCount: fields.length,
@@ -922,10 +811,7 @@ export async function getAppSettingsHistory(
   });
 }
 
-export async function updateAppSettings(
-  input: AppSettingsInput,
-  userId: number
-) {
+export async function updateAppSettings(input: AppSettingsInput, userId: number) {
   const db = await getDb();
   if (!db) {
     throw new Error("Database not available");
@@ -941,10 +827,7 @@ export async function updateAppSettings(
     alertEmailTo: normalizedUpdate.alertEmailTo ?? "",
     alertSmsTo: normalizedUpdate.alertSmsTo ?? "",
   };
-  const changedFields = buildSettingsChangeFields(
-    previousSnapshot,
-    nextSnapshot
-  );
+  const changedFields = buildSettingsChangeFields(previousSnapshot, nextSnapshot);
 
   if (changedFields.length === 0) {
     return current;
@@ -958,11 +841,7 @@ export async function updateAppSettings(
     })
     .where(eq(appSettings.id, current.id));
 
-  const updated = await db
-    .select()
-    .from(appSettings)
-    .where(eq(appSettings.id, current.id))
-    .limit(1);
+  const updated = await db.select().from(appSettings).where(eq(appSettings.id, current.id)).limit(1);
   if (!updated[0]) {
     throw new Error("Settings could not be updated");
   }
@@ -1000,11 +879,7 @@ export async function getLeadByPublicId(publicId: string, user: CurrentUser) {
     throw new Error("Database not available");
   }
 
-  const result = await db
-    .select()
-    .from(leads)
-    .where(eq(leads.publicId, publicId))
-    .limit(1);
+  const result = await db.select().from(leads).where(eq(leads.publicId, publicId)).limit(1);
   const row = result[0];
   if (!row || !canUserAccessLead(row, user)) {
     return null;
@@ -1029,11 +904,7 @@ export async function createLead(input: LeadCreateInput, user: CurrentUser) {
   }
 
   const initialStatus: Lead["estadoLead"] = "nuevo";
-  ensureStatusRequirements(
-    initialStatus,
-    input.motivoPerdido,
-    input.motivoPausa
-  );
+  ensureStatusRequirements(initialStatus, input.motivoPerdido, input.motivoPausa);
 
   const settings = await ensureDefaultSettingsRecord();
   const businessSettings = mergeBusinessSettings(settings);
@@ -1047,11 +918,7 @@ export async function createLead(input: LeadCreateInput, user: CurrentUser) {
     minimoValorAmarillo: businessSettings.minimoValorAmarillo,
     minimoValorRojo: businessSettings.minimoValorRojo,
   });
-  const alerts = getLeadAlertFlags(
-    metrics,
-    input.fechaLimiteGestion,
-    initialStatus
-  );
+  const alerts = getLeadAlertFlags(metrics, input.fechaLimiteGestion, initialStatus);
   const publicId = `LEAD-${nanoid(8).toUpperCase()}`;
   const assignment = await resolveAssignee({
     requestedUserId: input.agenteUserId,
@@ -1065,16 +932,15 @@ export async function createLead(input: LeadCreateInput, user: CurrentUser) {
     telefono: input.telefono.trim(),
     correo: input.correo.trim().toLowerCase(),
   };
-  const empresa =
-    input.leadPartyKind === "empresa"
-      ? (input.empresa ?? {
-          nombre: input.nombreEmpresa ?? "",
-          ciudad: input.ciudad ?? "",
-        })
-      : {
-          nombre: "",
-          ciudad: input.ciudad ?? "",
-        };
+  const empresa = input.leadPartyKind === "empresa"
+    ? (input.empresa ?? {
+        nombre: input.nombreEmpresa ?? "",
+        ciudad: input.ciudad ?? "",
+      })
+    : {
+        nombre: "",
+        ciudad: input.ciudad ?? "",
+      };
 
   await db.insert(leads).values({
     publicId,
@@ -1129,20 +995,14 @@ export async function createLead(input: LeadCreateInput, user: CurrentUser) {
     motivoPausa: normalizeText(input.motivoPausa),
     lastActivityAt: activityAt,
     calendarSyncStatus: settings.calendarSyncEnabled ? "pending" : "disabled",
-    calendarSyncMessage: settings.calendarSyncEnabled
-      ? "Pendiente de sincronización"
-      : "Integración desactivada",
+    calendarSyncMessage: settings.calendarSyncEnabled ? "Pendiente de sincronización" : "Integración desactivada",
     alertPending: alerts.requiereAtencion,
     closedAt: null,
     createdByUserId: user.id,
     updatedByUserId: user.id,
   });
 
-  const created = await db
-    .select()
-    .from(leads)
-    .where(eq(leads.publicId, publicId))
-    .limit(1);
+  const created = await db.select().from(leads).where(eq(leads.publicId, publicId)).limit(1);
   const lead = created[0];
   if (!lead) {
     throw new Error("Lead could not be created");
@@ -1171,17 +1031,9 @@ export async function updateLead(input: LeadUpdateInput, user: CurrentUser) {
     throw new Error("Database not available");
   }
 
-  ensureStatusRequirements(
-    input.estadoLead,
-    input.motivoPerdido,
-    input.motivoPausa
-  );
+  ensureStatusRequirements(input.estadoLead, input.motivoPerdido, input.motivoPausa);
 
-  const current = await db
-    .select()
-    .from(leads)
-    .where(eq(leads.publicId, input.publicId))
-    .limit(1);
+  const current = await db.select().from(leads).where(eq(leads.publicId, input.publicId)).limit(1);
   const existing = current[0];
   if (!existing || !canUserAccessLead(existing, user)) {
     return null;
@@ -1202,11 +1054,7 @@ export async function updateLead(input: LeadUpdateInput, user: CurrentUser) {
   const normalizedNotes = normalizeText(input.notasInternas);
   const normalizedLostReason = normalizeText(input.motivoPerdido);
   const normalizedPausedReason = normalizeText(input.motivoPausa);
-  const alerts = getLeadAlertFlags(
-    metrics,
-    normalizedDeadline,
-    input.estadoLead
-  );
+  const alerts = getLeadAlertFlags(metrics, normalizedDeadline, input.estadoLead);
   const statusChanged = existing.estadoLead !== input.estadoLead;
   const assignment = await resolveAssignee({
     requestedUserId: input.agenteUserId,
@@ -1216,9 +1064,7 @@ export async function updateLead(input: LeadUpdateInput, user: CurrentUser) {
   });
   const assignmentChanged = existing.agenteUserId !== assignment.agenteUserId;
   const activityAt = normalizeTimestamp(input.ultimaGestion) ?? Date.now();
-  const nextClosedAt = ["ganado", "perdido"].includes(input.estadoLead)
-    ? Date.now()
-    : null;
+  const nextClosedAt = ["ganado", "perdido"].includes(input.estadoLead) ? Date.now() : null;
   const sensitiveChanges = collectSensitiveLeadChanges({
     existing,
     next: {
@@ -1237,16 +1083,15 @@ export async function updateLead(input: LeadUpdateInput, user: CurrentUser) {
     telefono: input.telefono.trim(),
     correo: input.correo.trim().toLowerCase(),
   };
-  const empresa =
-    input.leadPartyKind === "empresa"
-      ? (input.empresa ?? {
-          nombre: input.nombreEmpresa ?? "",
-          ciudad: input.ciudad ?? "",
-        })
-      : {
-          nombre: "",
-          ciudad: input.ciudad ?? "",
-        };
+  const empresa = input.leadPartyKind === "empresa"
+    ? (input.empresa ?? {
+        nombre: input.nombreEmpresa ?? "",
+        ciudad: input.ciudad ?? "",
+      })
+    : {
+        nombre: "",
+        ciudad: input.ciudad ?? "",
+      };
 
   await db
     .update(leads)
@@ -1301,12 +1146,8 @@ export async function updateLead(input: LeadUpdateInput, user: CurrentUser) {
       motivoPerdido: normalizedLostReason,
       motivoPausa: normalizedPausedReason,
       lastActivityAt: activityAt,
-      calendarSyncStatus: settings.calendarSyncEnabled
-        ? "pending"
-        : existing.calendarSyncStatus,
-      calendarSyncMessage: settings.calendarSyncEnabled
-        ? "Pendiente de sincronización"
-        : existing.calendarSyncMessage,
+      calendarSyncStatus: settings.calendarSyncEnabled ? "pending" : existing.calendarSyncStatus,
+      calendarSyncMessage: settings.calendarSyncEnabled ? "Pendiente de sincronización" : existing.calendarSyncMessage,
       alertPending: alerts.requiereAtencion,
       closedAt: nextClosedAt,
       updatedByUserId: user.id,
@@ -1370,20 +1211,13 @@ export async function updateLead(input: LeadUpdateInput, user: CurrentUser) {
   return getLeadByPublicId(existing.publicId, user);
 }
 
-export async function updateLeadStatus(
-  input: LeadStatusUpdateInput,
-  user: CurrentUser
-) {
+export async function updateLeadStatus(input: LeadStatusUpdateInput, user: CurrentUser) {
   const db = await getDb();
   if (!db) {
     throw new Error("Database not available");
   }
 
-  const current = await db
-    .select()
-    .from(leads)
-    .where(eq(leads.publicId, input.publicId))
-    .limit(1);
+  const current = await db.select().from(leads).where(eq(leads.publicId, input.publicId)).limit(1);
   const existing = current[0];
   if (!existing || !canUserAccessLead(existing, user)) {
     return null;
@@ -1396,30 +1230,22 @@ export async function updateLeadStatus(
       estadoLead: input.estadoLead,
       proximaAccion: input.proximaAccion ?? existing.proximaAccion,
       notasInternas: input.notasInternas ?? existing.notasInternas,
-      fechaLimiteGestion:
-        input.fechaLimiteGestion ?? existing.fechaLimiteGestion,
+      fechaLimiteGestion: input.fechaLimiteGestion ?? existing.fechaLimiteGestion,
       ultimaGestion: input.ultimaGestion ?? Date.now(),
       motivoPerdido: input.motivoPerdido ?? existing.motivoPerdido,
       motivoPausa: input.motivoPausa ?? existing.motivoPausa,
     },
-    user
+    user,
   );
 }
 
-export async function addLeadActivity(
-  input: LeadActivityCreateInput,
-  user: CurrentUser
-) {
+export async function addLeadActivity(input: LeadActivityCreateInput, user: CurrentUser) {
   const db = await getDb();
   if (!db) {
     throw new Error("Database not available");
   }
 
-  const [lead] = await db
-    .select()
-    .from(leads)
-    .where(eq(leads.publicId, input.publicId))
-    .limit(1);
+  const [lead] = await db.select().from(leads).where(eq(leads.publicId, input.publicId)).limit(1);
   if (!lead || !canUserAccessLead(lead, user)) {
     return null;
   }
@@ -1493,9 +1319,7 @@ export async function recordCalendarSync(params: {
     leadId: params.leadId,
     activityType: "calendar_sync",
     title: "Sincronización de calendario",
-    description:
-      normalizeText(params.message) ??
-      `Estado ${params.syncStatus} en la acción ${params.syncAction}.`,
+    description: normalizeText(params.message) ?? `Estado ${params.syncStatus} en la acción ${params.syncAction}.`,
     payload: {
       syncAction: params.syncAction,
       syncStatus: params.syncStatus,
@@ -1547,10 +1371,7 @@ export async function getCommercialTeam(currentUser: CurrentUser) {
     throw new Error("Database not available");
   }
 
-  const rows = await db
-    .select()
-    .from(users)
-    .orderBy(desc(users.lastSignedIn), asc(users.name));
+  const rows = await db.select().from(users).orderBy(desc(users.lastSignedIn), asc(users.name));
 
   return rows.map(row => ({
     id: row.id,
@@ -1559,17 +1380,11 @@ export async function getCommercialTeam(currentUser: CurrentUser) {
     role: row.role,
     roleLabel: appRoleLabels[row.role],
     lastSignedIn: row.lastSignedIn,
-    canEdit:
-      isManagerRole(currentUser.role) &&
-      !(currentUser.role === "admin" && row.role === "superadmin") &&
-      row.id !== currentUser.id,
+    canEdit: isManagerRole(currentUser.role) && !(currentUser.role === "admin" && row.role === "superadmin") && row.id !== currentUser.id,
   }));
 }
 
-export async function updateUserRole(
-  input: UserRoleUpdateInput,
-  currentUser: CurrentUser
-) {
+export async function updateUserRole(input: UserRoleUpdateInput, currentUser: CurrentUser) {
   const db = await getDb();
   if (!db) {
     throw new Error("Database not available");
@@ -1579,11 +1394,7 @@ export async function updateUserRole(
     throw new Error("No tienes permisos para cambiar roles.");
   }
 
-  const [targetUser] = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, input.userId))
-    .limit(1);
+  const [targetUser] = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
   if (!targetUser) {
     throw new Error("Usuario no encontrado.");
   }
@@ -1605,11 +1416,7 @@ export async function updateUserRole(
     })
     .where(eq(users.id, targetUser.id));
 
-  const [updated] = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, targetUser.id))
-    .limit(1);
+  const [updated] = await db.select().from(users).where(eq(users.id, targetUser.id)).limit(1);
   if (!updated) {
     throw new Error("No fue posible actualizar el rol.");
   }
@@ -1629,9 +1436,7 @@ export async function getDashboardSnapshot(user: CurrentUser) {
   const settings = mergeBusinessSettings(await ensureDefaultSettingsRecord());
   const now = Date.now();
   const openRows = rows.filter(row => !row.isClosed);
-  const wonRows = rows.filter(
-    row => normalizeLeadStatus(row.estadoLead) === "ganado"
-  );
+  const wonRows = rows.filter(row => normalizeLeadStatus(row.estadoLead) === "ganado");
   const upcomingVisits = [...openRows]
     .filter(row => row.fechaVisita >= now)
     .sort((a, b) => a.fechaVisita - b.fechaVisita)
@@ -1641,33 +1446,15 @@ export async function getDashboardSnapshot(user: CurrentUser) {
     .sort((a, b) => b.scoreTotal - a.scoreTotal)
     .slice(0, 6);
   const overdueRows = openRows.filter(row => row.isOverdue);
-  const unattendedRows = openRows.filter(
-    row => (row.horasDesdeUltimaGestion ?? 0) >= 24
-  );
+  const unattendedRows = openRows.filter(row => (row.horasDesdeUltimaGestion ?? 0) >= 24);
   const pipelineValue = openRows.reduce((sum, row) => sum + row.valorTotal, 0);
   const wonValue = wonRows.reduce((sum, row) => sum + row.valorTotal, 0);
-  const conversionRate =
-    rows.length > 0
-      ? Math.round((wonRows.length / rows.length) * 1000) / 10
-      : 0;
-  const averageTicket =
-    rows.length > 0
-      ? Math.round(
-          rows.reduce((sum, row) => sum + row.valorTotal, 0) / rows.length
-        )
-      : 0;
-  const progressToGoal =
-    settings.metaIngresosMensual > 0
-      ? Math.min(
-          100,
-          Math.round((wonValue / settings.metaIngresosMensual) * 1000) / 10
-        )
-      : 0;
+  const conversionRate = rows.length > 0 ? Math.round((wonRows.length / rows.length) * 1000) / 10 : 0;
+  const averageTicket = rows.length > 0 ? Math.round(rows.reduce((sum, row) => sum + row.valorTotal, 0) / rows.length) : 0;
+  const progressToGoal = settings.metaIngresosMensual > 0 ? Math.min(100, Math.round((wonValue / settings.metaIngresosMensual) * 1000) / 10) : 0;
 
   const pipeline = leadPrimaryPipelineValues.map(status => {
-    const bucketRows = rows.filter(
-      row => normalizeLeadStatus(row.estadoLead) === status
-    );
+    const bucketRows = rows.filter(row => normalizeLeadStatus(row.estadoLead) === status);
     return {
       status,
       label: leadStatusLabels[status],
@@ -1676,30 +1463,12 @@ export async function getDashboardSnapshot(user: CurrentUser) {
     };
   });
 
-  const byAgentMap = new Map<
-    string,
-    {
-      name: string;
-      count: number;
-      value: number;
-      won: number;
-      closedCount: number;
-    }
-  >();
-  const byCityMap = new Map<
-    string,
-    { city: string; count: number; value: number }
-  >();
+  const byAgentMap = new Map<string, { name: string; count: number; value: number; won: number; closedCount: number }>();
+  const byCityMap = new Map<string, { city: string; count: number; value: number }>();
 
   for (const row of rows) {
     const agentName = row.agenteResponsable ?? "Sin asignar";
-    const currentAgent = byAgentMap.get(agentName) ?? {
-      name: agentName,
-      count: 0,
-      value: 0,
-      won: 0,
-      closedCount: 0,
-    };
+    const currentAgent = byAgentMap.get(agentName) ?? { name: agentName, count: 0, value: 0, won: 0, closedCount: 0 };
     if (!row.isClosed) {
       currentAgent.count += 1;
       currentAgent.value += row.valorTotal;
@@ -1714,11 +1483,7 @@ export async function getDashboardSnapshot(user: CurrentUser) {
 
   for (const row of openRows) {
     const cityName = normalizeText(row.ciudad) ?? "Sin ciudad";
-    const currentCity = byCityMap.get(cityName) ?? {
-      city: cityName,
-      count: 0,
-      value: 0,
-    };
+    const currentCity = byCityMap.get(cityName) ?? { city: cityName, count: 0, value: 0 };
     currentCity.count += 1;
     currentCity.value += row.valorTotal;
     byCityMap.set(cityName, currentCity);
@@ -1740,32 +1505,18 @@ export async function getDashboardSnapshot(user: CurrentUser) {
       averageTicket,
       conversionRate,
       progressToGoal,
-      projectedPipelineCommission: estimateLeadCommission(
-        pipelineValue,
-        settings.comisionPorcentaje
-      ),
-      projectedWonCommission: estimateLeadCommission(
-        wonValue,
-        settings.comisionPorcentaje
-      ),
+      projectedPipelineCommission: estimateLeadCommission(pipelineValue, settings.comisionPorcentaje),
+      projectedWonCommission: estimateLeadCommission(wonValue, settings.comisionPorcentaje),
     },
     pipeline,
-    byAgent: Array.from(byAgentMap.values())
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 6),
-    byCity: Array.from(byCityMap.values())
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 6),
+    byAgent: Array.from(byAgentMap.values()).sort((a, b) => b.value - a.value).slice(0, 6),
+    byCity: Array.from(byCityMap.values()).sort((a, b) => b.value - a.value).slice(0, 6),
     upcomingVisits,
     urgentRows,
     overdueRows: overdueRows.slice(0, 6),
     unattendedRows: unattendedRows.slice(0, 6),
     recentRows: [...rows]
-      .sort(
-        (a, b) =>
-          (b.lastActivityAt ?? b.updatedAt.getTime()) -
-          (a.lastActivityAt ?? a.updatedAt.getTime())
-      )
+      .sort((a, b) => (b.lastActivityAt ?? b.updatedAt.getTime()) - (a.lastActivityAt ?? a.updatedAt.getTime()))
       .slice(0, 8),
   };
 }
@@ -1776,17 +1527,13 @@ export async function getDashboardSnapshot(user: CurrentUser) {
 export async function listPipelineStages() {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return db
-    .select()
-    .from(pipelineStages)
-    .where(eq(pipelineStages.isActive, true))
-    .orderBy(asc(pipelineStages.order));
+  return db.select().from(pipelineStages).where(eq(pipelineStages.isActive, true)).orderBy(asc(pipelineStages.order));
 }
 
 export async function updatePipelineStages(stages: any[]) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-
+  
   // En un entorno real, usaríamos una transacción para borrar y reinsertar o actualizar
   // Por ahora, simulamos la persistencia
   return stages;
@@ -1819,10 +1566,7 @@ export async function createCustomLabel(data: any) {
 export async function listCustomChannels() {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return db
-    .select()
-    .from(customChannels)
-    .where(eq(customChannels.isActive, true));
+  return db.select().from(customChannels).where(eq(customChannels.isActive, true));
 }
 
 /**
@@ -1831,10 +1575,7 @@ export async function listCustomChannels() {
 export async function listAutomationRules() {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return db
-    .select()
-    .from(automationRules)
-    .orderBy(desc(automationRules.createdAt));
+  return db.select().from(automationRules).orderBy(desc(automationRules.createdAt));
 }
 
 export async function createAutomationRule(data: any) {
@@ -1846,22 +1587,14 @@ export async function createAutomationRule(data: any) {
 export async function getActiveAutomationRules() {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return db
-    .select()
-    .from(automationRules)
-    .where(eq(automationRules.isActive, true))
-    .orderBy(desc(automationRules.createdAt));
+  return db.select().from(automationRules).where(eq(automationRules.isActive, true)).orderBy(desc(automationRules.createdAt));
 }
 
 export async function updateAutomationRule(id: number, data: any) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(automationRules).set(data).where(eq(automationRules.id, id));
-  const [updated] = await db
-    .select()
-    .from(automationRules)
-    .where(eq(automationRules.id, id))
-    .limit(1);
+  const [updated] = await db.select().from(automationRules).where(eq(automationRules.id, id)).limit(1);
   return updated;
 }
 
@@ -1874,11 +1607,7 @@ export async function deleteAutomationRule(id: number) {
 export async function incrementRuleExecution(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [rule] = await db
-    .select()
-    .from(automationRules)
-    .where(eq(automationRules.id, id))
-    .limit(1);
+  const [rule] = await db.select().from(automationRules).where(eq(automationRules.id, id)).limit(1);
   if (!rule) return;
   const currentCount = rule.executionCount ?? 0;
   await db
@@ -1896,10 +1625,7 @@ export async function incrementRuleExecution(id: number) {
 export async function listEmailCampaigns() {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return db
-    .select()
-    .from(emailCampaigns)
-    .orderBy(desc(emailCampaigns.createdAt));
+  return db.select().from(emailCampaigns).orderBy(desc(emailCampaigns.createdAt));
 }
 
 export async function createEmailCampaign(data: any) {
@@ -1911,11 +1637,7 @@ export async function createEmailCampaign(data: any) {
 export async function getEmailCampaign(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [campaign] = await db
-    .select()
-    .from(emailCampaigns)
-    .where(eq(emailCampaigns.id, id))
-    .limit(1);
+  const [campaign] = await db.select().from(emailCampaigns).where(eq(emailCampaigns.id, id)).limit(1);
   return campaign;
 }
 
@@ -1937,313 +1659,4 @@ export async function getUserById(id: number) {
   if (!db) throw new Error("Database not available");
   const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
   return user;
-}
-
-/* ============================================================
- * Helpers para el motor de automatizaciones (trigger gestion_vencida)
- * ============================================================ */
-
-/**
- * Busca un usuario por nombre (coincidencia exacta case-insensitive primero,
- * luego parcial). Si no encuentra nada, devuelve null.
- */
-export async function findUserByName(name: string): Promise<User | null> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const target = name.trim();
-  if (!target) return null;
-
-  const all = await db.select().from(users);
-  const lower = target.toLowerCase();
-  const exact = all.find(u => (u.name || "").toLowerCase() === lower);
-  if (exact) return exact;
-  const partial = all.find(u => (u.name || "").toLowerCase().includes(lower));
-  if (partial) return partial;
-  const byEmail = all.find(u => (u.email || "").toLowerCase() === lower);
-  return byEmail ?? null;
-}
-
-/**
- * Reasigna un lead a un agente, registrando la actividad correspondiente.
- * Devuelve el lead actualizado (LeadListItem) o null si falla.
- */
-export async function assignLeadAgent(
-  leadId: number,
-  agenteUserId: number | null,
-  agenteResponsable: string,
-  updatedByUserId: number
-) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  const [existing] = await db
-    .select()
-    .from(leads)
-    .where(eq(leads.id, leadId))
-    .limit(1);
-  if (!existing) return null;
-
-  await db
-    .update(leads)
-    .set({
-      agenteUserId,
-      agenteResponsable: normalizeText(agenteResponsable) ?? "Sin asignar",
-      updatedByUserId,
-      lastActivityAt: Date.now(),
-    })
-    .where(eq(leads.id, leadId));
-
-  await createLeadActivity({
-    leadId,
-    activityType: "assignment_changed",
-    title: "Asignación actualizada por automatización",
-    description: `Regla automática asignó el lead a ${agenteResponsable}.`,
-    payload: {
-      before: existing.agenteUserId,
-      after: agenteUserId,
-      source: "automation",
-    },
-    isSystem: true,
-    createdByUserId: updatedByUserId,
-  });
-
-  // Devolver el lead enriquecido (sin chequeo de visibilidad: el caller ya validó)
-  return getLeadByPublicId(existing.publicId, {
-    id: updatedByUserId,
-    role: "admin",
-    name: null,
-    email: null,
-  });
-}
-
-/**
- * Persiste el array de etiquetas de un lead (serializado como JSON) y registra actividad.
- * Devuelve el lead enriquecido o null si falla.
- */
-export async function updateLeadLabels(
-  leadId: number,
-  labels: string[],
-  updatedByUserId: number
-) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  const [existing] = await db
-    .select()
-    .from(leads)
-    .where(eq(leads.id, leadId))
-    .limit(1);
-  if (!existing) return null;
-
-  const previous = existing.labels ?? "[]";
-  const next = JSON.stringify(labels);
-
-  await db
-    .update(leads)
-    .set({
-      labels: next,
-      updatedByUserId,
-      lastActivityAt: Date.now(),
-    })
-    .where(eq(leads.id, leadId));
-
-  await createLeadActivity({
-    leadId,
-    activityType: "lead_updated",
-    title: "Etiqueta añadida por automatización",
-    description: `La automatización agregó la(s) etiqueta(s): ${labels.join(", ")}.`,
-    payload: {
-      previous,
-      next,
-      source: "automation",
-    },
-    isSystem: true,
-    createdByUserId: updatedByUserId,
-  });
-
-  return getLeadByPublicId(existing.publicId, {
-    id: updatedByUserId,
-    role: "admin",
-    name: null,
-    email: null,
-  });
-}
-
-/**
- * Cambia el estado de un lead y registra actividad. NO recalcula scores
- * (es una mutación puntual del motor de automatizaciones).
- */
-export async function updateLeadStatusField(
-  leadId: number,
-  newStatus: string,
-  updatedByUserId: number
-) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  const [existing] = await db
-    .select()
-    .from(leads)
-    .where(eq(leads.id, leadId))
-    .limit(1);
-  if (!existing) return null;
-
-  const now = Date.now();
-  const isClosing = ["ganado", "perdido"].includes(newStatus);
-  const closedAt = isClosing ? now : existing.closedAt;
-
-  await db
-    .update(leads)
-    .set({
-      estadoLead: newStatus,
-      closedAt,
-      updatedByUserId,
-      lastActivityAt: now,
-    })
-    .where(eq(leads.id, leadId));
-
-  await createLeadActivity({
-    leadId,
-    activityType: "status_changed",
-    title: "Estado actualizado por automatización",
-    description: `Cambio de estado de "${existing.estadoLead}" a "${newStatus}" vía regla automática.`,
-    payload: {
-      before: existing.estadoLead,
-      after: newStatus,
-      source: "automation",
-    },
-    isSystem: true,
-    createdByUserId: updatedByUserId,
-  });
-
-  return getLeadByPublicId(existing.publicId, {
-    id: updatedByUserId,
-    role: "admin",
-    name: null,
-    email: null,
-  });
-}
-
-/**
- * Registra un envío de email por automatización en el log de actividades.
- */
-export async function recordAutomationEmail(
-  leadId: number,
-  recipient: string,
-  subject: string,
-  success: boolean,
-  updatedByUserId: number
-) {
-  await createLeadActivity({
-    leadId,
-    activityType: "alert_sent",
-    title: success
-      ? "Email de automatización enviado"
-      : "Fallo al enviar email de automatización",
-    description: `Para: ${recipient} — Asunto: ${subject}`,
-    payload: {
-      channel: "email",
-      recipient,
-      subject,
-      success,
-      source: "automation",
-    },
-    isSystem: true,
-    createdByUserId: updatedByUserId,
-  });
-}
-
-/**
- * Devuelve los leads visibles para un usuario que están vencidos AHORA.
- * Aplica el mismo control de acceso que listVisibleLeadRows y reutiliza enrichLead.
- */
-export async function listOverdueLeadsForUser(
-  user: CurrentUser
-): Promise<LeadListItem[]> {
-  const rows = await listVisibleLeadRows(user);
-  return rows.map(enrichLead).filter(row => row.isOverdue);
-}
-
-/**
- * Devuelve los leads visibles para un usuario cuya `fechaLimiteGestion` está
- * en el futuro pero a menos de `diasUmbral` días de vencer. Si `diasUmbral`
- * no es un número positivo, devuelve lista vacía.
- */
-export async function listProximosAVencerLeadsForUser(
-  user: CurrentUser,
-  diasUmbral: number
-): Promise<LeadListItem[]> {
-  if (!Number.isFinite(diasUmbral) || diasUmbral <= 0) return [];
-  const rows = await listVisibleLeadRows(user);
-  const now = Date.now();
-  const ms = diasUmbral * 24 * 60 * 60 * 1000;
-  return rows.map(enrichLead).filter(row => {
-    if (row.isClosed) return false;
-    if (!row.fechaLimiteGestion) return false;
-    const diff = row.fechaLimiteGestion - now;
-    return diff > 0 && diff <= ms;
-  });
-}
-
-/* ============================================================
- * CRUD de destinatarios de automatizaciones (solo superadmin)
- * Usado por los triggers opportunity_* y las acciones send_*_to_user.
- * ============================================================ */
-
-export async function listAutomationRecipients(): Promise<
-  AutomationRecipient[]
-> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  return db
-    .select()
-    .from(automationRecipients)
-    .orderBy(asc(automationRecipients.name));
-}
-
-export async function getAutomationRecipient(
-  id: number
-): Promise<AutomationRecipient | null> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const [row] = await db
-    .select()
-    .from(automationRecipients)
-    .where(eq(automationRecipients.id, id))
-    .limit(1);
-  return row ?? null;
-}
-
-export async function createAutomationRecipient(
-  data: Omit<InsertAutomationRecipient, "id" | "createdAt" | "updatedAt">
-): Promise<AutomationRecipient> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const [row] = await db
-    .insert(automationRecipients)
-    .values(data)
-    .$returningId();
-  if (!row) throw new Error("No fue posible crear el destinatario.");
-  return getAutomationRecipient(row.id) as Promise<AutomationRecipient>;
-}
-
-export async function updateAutomationRecipient(
-  id: number,
-  data: Partial<
-    Omit<InsertAutomationRecipient, "id" | "createdAt" | "updatedAt">
-  >
-): Promise<AutomationRecipient | null> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db
-    .update(automationRecipients)
-    .set(data)
-    .where(eq(automationRecipients.id, id));
-  return getAutomationRecipient(id);
-}
-
-export async function deleteAutomationRecipient(id: number): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.delete(automationRecipients).where(eq(automationRecipients.id, id));
 }

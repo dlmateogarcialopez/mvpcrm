@@ -1,0 +1,10 @@
+1929  docker exec -it mv-app pnpm add -D drizzle-kit
+ 1930  docker exec -it mv-app sh -c 'npx drizzle-kit push --dialect=mysql --schema=./drizzle/schema.ts --url=$DATABASE_URL'
+ 1931  docker exec -i mv-database mysql -u mv_user -pmv_password cotizador_leads -e "CREATE TABLE IF NOT EXISTS settingsChangeLogs (id int AUTO_INCREMENT NOT NULL, settingsId int NOT NULL, changedByUserId int, summary varchar(255) NOT NULL, changedFields text NOT NULL, previousSnapshot text NOT NULL, nextSnapshot text NOT NULL, createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT settingsChangeLogs_id PRIMARY KEY(id));"
+ 1932  docker exec -i mv-database mysql -u mv_user -pmv_password cotizador_leads -e "show tables;"
+ 1933  docker exec -i mv-database mysql -u mv_user -pmv_password cotizador_leads -e "select * from settingsChangeLogs left join users on settingsChangeLogs.changedByUserId = users.id order by settingsChangeLogs.createdAt desc limit 8"
+ 1934  docker exec -i mv-database mysql -u mv_user -pmv_password cotizador_leads -e "desc settingsChangeLogs;"
+ 1935  docker exec -i mv-database mysql -u mv_user -pmv_password cotizador_leads -e "DROP TABLE IF EXISTS settingsChangeLogs; CREATE TABLE settingsChangeLogs (id int AUTO_INCREMENT NOT NULL, settingsId int NOT NULL, changedByUserId int, summary varchar(255) NOT NULL, changedFields text NOT NULL, previousSnapshot text NOT NULL, nextSnapshot text NOT NULL, createdAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT settingsChangeLogs_id PRIMARY KEY(id));"
+ 1936  nano .env
+
+

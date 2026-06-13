@@ -25,9 +25,7 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   passwordHash: text("passwordHash"),
-  role: mysqlEnum("role", [...appRoleValues])
-    .default("agent")
-    .notNull(),
+  role: mysqlEnum("role", [...appRoleValues]).default("agent").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -35,17 +33,13 @@ export const users = mysqlTable("users", {
 
 export const appSettings = mysqlTable("appSettings", {
   id: int("id").autoincrement().primaryKey(),
-  configName: varchar("configName", { length: 120 })
-    .notNull()
-    .default("Configuración principal"),
+  configName: varchar("configName", { length: 120 }).notNull().default("Configuración principal"),
   isDefault: boolean("isDefault").notNull().default(true),
   precioMultiple: int("precioMultiple").notNull().default(99000),
   precioJunior: int("precioJunior").notNull().default(69000),
   precioSenior: int("precioSenior").notNull().default(69000),
   precioParqueadero: int("precioParqueadero").notNull().default(8000),
-  ticketPromedioReferencia: int("ticketPromedioReferencia")
-    .notNull()
-    .default(500000),
+  ticketPromedioReferencia: int("ticketPromedioReferencia").notNull().default(500000),
   minimoPersonasAmarillo: int("minimoPersonasAmarillo").notNull().default(100),
   minimoPersonasRojo: int("minimoPersonasRojo").notNull().default(200),
   minimoValorAmarillo: int("minimoValorAmarillo").notNull().default(20000000),
@@ -61,21 +55,15 @@ export const appSettings = mysqlTable("appSettings", {
   smsAlertsEnabled: boolean("smsAlertsEnabled").notNull().default(false),
   alertEmailTo: varchar("alertEmailTo", { length: 320 }),
   alertSmsTo: varchar("alertSmsTo", { length: 32 }),
-  updatedByUserId: int("updatedByUserId").references(() => users.id, {
-    onDelete: "set null",
-  }),
+  updatedByUserId: int("updatedByUserId").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 export const settingsChangeLogs = mysqlTable("settingsChangeLogs", {
   id: int("id").autoincrement().primaryKey(),
-  settingsId: int("settingsId")
-    .notNull()
-    .references(() => appSettings.id, { onDelete: "cascade" }),
-  changedByUserId: int("changedByUserId").references(() => users.id, {
-    onDelete: "set null",
-  }),
+  settingsId: int("settingsId").notNull().references(() => appSettings.id, { onDelete: "cascade" }),
+  changedByUserId: int("changedByUserId").references(() => users.id, { onDelete: "set null" }),
   summary: varchar("summary", { length: 255 }).notNull(),
   changedFields: text("changedFields").notNull(),
   previousSnapshot: text("previousSnapshot").notNull(),
@@ -86,40 +74,49 @@ export const settingsChangeLogs = mysqlTable("settingsChangeLogs", {
 /**
  * Tabla para almacenar etapas de embudo personalizadas
  */
-export const pipelineStages = mysqlTable("pipeline_stages", {
-  id: int("id").primaryKey().autoincrement(),
-  name: varchar("name", { length: 100 }).notNull(),
-  displayName: varchar("displayName", { length: 100 }).notNull(),
-  color: varchar("color", { length: 7 }).default("#3b82f6"),
-  order: int("order").default(0),
-  isActive: boolean("isActive").default(true),
-  createdAt: timestamp("createdAt").defaultNow(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow(),
-});
+export const pipelineStages = mysqlTable(
+  "pipeline_stages",
+  {
+    id: int("id").primaryKey().autoincrement(),
+    name: varchar("name", { length: 100 }).notNull(),
+    displayName: varchar("displayName", { length: 100 }).notNull(),
+    color: varchar("color", { length: 7 }).default("#3b82f6"),
+    order: int("order").default(0),
+    isActive: boolean("isActive").default(true),
+    createdAt: timestamp("createdAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow(),
+  }
+);
 
 /**
  * Tabla para etiquetas personalizadas
  */
-export const customLabels = mysqlTable("custom_labels", {
-  id: int("id").primaryKey().autoincrement(),
-  name: varchar("name", { length: 50 }).notNull(),
-  color: varchar("color", { length: 7 }).default("#6b7280"),
-  description: text("description"),
-  createdAt: timestamp("createdAt").defaultNow(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow(),
-});
+export const customLabels = mysqlTable(
+  "custom_labels",
+  {
+    id: int("id").primaryKey().autoincrement(),
+    name: varchar("name", { length: 50 }).notNull(),
+    color: varchar("color", { length: 7 }).default("#6b7280"),
+    description: text("description"),
+    createdAt: timestamp("createdAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow(),
+  }
+);
 
 /**
  * Tabla para canales personalizados
  */
-export const customChannels = mysqlTable("custom_channels", {
-  id: int("id").primaryKey().autoincrement(),
-  name: varchar("name", { length: 100 }).notNull(),
-  icon: varchar("icon", { length: 50 }).default("MessageSquare"),
-  isActive: boolean("isActive").default(true),
-  createdAt: timestamp("createdAt").defaultNow(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow(),
-});
+export const customChannels = mysqlTable(
+  "custom_channels",
+  {
+    id: int("id").primaryKey().autoincrement(),
+    name: varchar("name", { length: 100 }).notNull(),
+    icon: varchar("icon", { length: 50 }).default("MessageSquare"),
+    isActive: boolean("isActive").default(true),
+    createdAt: timestamp("createdAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow(),
+  }
+);
 
 export const leads = mysqlTable("leads", {
   id: int("id").autoincrement().primaryKey(),
@@ -136,9 +133,7 @@ export const leads = mysqlTable("leads", {
   correo: varchar("correo", { length: 320 }).notNull(),
   fechaVisita: bigint("fechaVisita", { mode: "number" }).notNull(),
   motivoVisita: text("motivoVisita").notNull(),
-  tipoEvento: mysqlEnum("tipoEvento", [...leadTypeValues])
-    .notNull()
-    .default("otro"),
+  tipoEvento: mysqlEnum("tipoEvento", [...leadTypeValues]).notNull().default("otro"),
   objecionPrincipal: text("objecionPrincipal").notNull(),
   cantidadMultiple: int("cantidadMultiple").notNull().default(0),
   cantidadJunior: int("cantidadJunior").notNull().default(0),
@@ -161,21 +156,13 @@ export const leads = mysqlTable("leads", {
   scoreUrgencia: int("scoreUrgencia").notNull().default(0),
   scoreRecencia: int("scoreRecencia").notNull().default(0),
   scoreTotal: int("scoreTotal").notNull().default(0),
-  prioridadBase: mysqlEnum("prioridadBase", [...leadPriorityValues])
-    .notNull()
-    .default("gris"),
-  prioridad: mysqlEnum("prioridad", [...leadPriorityValues])
-    .notNull()
-    .default("gris"),
+  prioridadBase: mysqlEnum("prioridadBase", [...leadPriorityValues]).notNull().default("gris"),
+  prioridad: mysqlEnum("prioridad", [...leadPriorityValues]).notNull().default("gris"),
   prioridadExplicacion: text("prioridadExplicacion"),
   estadoLead: varchar("estadoLead", { length: 50 }).notNull().default("nuevo"),
-  canalOrigen: varchar("canalOrigen", { length: 100 })
-    .notNull()
-    .default("otro"),
+  canalOrigen: varchar("canalOrigen", { length: 100 }).notNull().default("otro"),
   labels: text("labels"), // JSON array de IDs de etiquetas
-  agenteUserId: int("agenteUserId").references(() => users.id, {
-    onDelete: "set null",
-  }),
+  agenteUserId: int("agenteUserId").references(() => users.id, { onDelete: "set null" }),
   agenteResponsable: varchar("agenteResponsable", { length: 160 }),
   fechaIngresoLead: bigint("fechaIngresoLead", { mode: "number" }).notNull(),
   fechaLimiteGestion: bigint("fechaLimiteGestion", { mode: "number" }),
@@ -187,23 +174,15 @@ export const leads = mysqlTable("leads", {
   lastActivityAt: bigint("lastActivityAt", { mode: "number" }),
   calendarEventId: varchar("calendarEventId", { length: 255 }),
   calendarEventUrl: text("calendarEventUrl"),
-  calendarSyncStatus: mysqlEnum("calendarSyncStatus", [
-    ...calendarSyncStatusValues,
-  ])
-    .notNull()
-    .default("disabled"),
+  calendarSyncStatus: mysqlEnum("calendarSyncStatus", [...calendarSyncStatusValues]).notNull().default("disabled"),
   calendarSyncMessage: text("calendarSyncMessage"),
   alertPending: boolean("alertPending").notNull().default(false),
   alertLastChannel: varchar("alertLastChannel", { length: 32 }),
   alertLastMessage: text("alertLastMessage"),
   lastAlertAt: bigint("lastAlertAt", { mode: "number" }),
   closedAt: bigint("closedAt", { mode: "number" }),
-  createdByUserId: int("createdByUserId")
-    .notNull()
-    .references(() => users.id, { onDelete: "restrict" }),
-  updatedByUserId: int("updatedByUserId")
-    .notNull()
-    .references(() => users.id, { onDelete: "restrict" }),
+  createdByUserId: int("createdByUserId").notNull().references(() => users.id, { onDelete: "restrict" }),
+  updatedByUserId: int("updatedByUserId").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -211,63 +190,51 @@ export const leads = mysqlTable("leads", {
 /**
  * Tabla para automatizaciones (reglas)
  */
-export const automationRules = mysqlTable("automation_rules", {
-  id: int("id").primaryKey().autoincrement(),
-  name: varchar("name", { length: 150 }).notNull(),
-  description: text("description"),
-  trigger: varchar("trigger", { length: 50 }).notNull(),
-  triggerCondition: text("triggerCondition"),
-  action: varchar("action", { length: 50 }).notNull(),
-  actionData: text("actionData"),
-  isActive: boolean("isActive").default(true),
-  executionCount: int("executionCount").default(0),
-  lastExecutedAt: timestamp("lastExecutedAt"),
-  createdAt: timestamp("createdAt").defaultNow(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow(),
-});
+export const automationRules = mysqlTable(
+  "automation_rules",
+  {
+    id: int("id").primaryKey().autoincrement(),
+    name: varchar("name", { length: 150 }).notNull(),
+    description: text("description"),
+    trigger: varchar("trigger", { length: 50 }).notNull(),
+    triggerCondition: text("triggerCondition"),
+    action: varchar("action", { length: 50 }).notNull(),
+    actionData: text("actionData"),
+    isActive: boolean("isActive").default(true),
+    executionCount: int("executionCount").default(0),
+    lastExecutedAt: timestamp("lastExecutedAt"),
+    createdAt: timestamp("createdAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow(),
+  }
+);
 
 /**
  * Tabla para campañas de email marketing
  */
-export const emailCampaigns = mysqlTable("email_campaigns", {
-  id: int("id").primaryKey().autoincrement(),
-  name: varchar("name", { length: 150 }).notNull(),
-  subject: varchar("subject", { length: 200 }).notNull(),
-  templateId: int("templateId"),
-  content: text("content"),
-  targetSegment: varchar("targetSegment", { length: 50 }).notNull(),
-  targetSegmentData: text("targetSegmentData"),
-  status: varchar("status", { length: 20 }).default("draft"),
-  scheduledAt: timestamp("scheduledAt"),
-  sentAt: timestamp("sentAt"),
-  totalSent: int("totalSent").default(0),
-  totalOpened: int("totalOpened").default(0),
-  totalClicked: int("totalClicked").default(0),
-  createdAt: timestamp("createdAt").defaultNow(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow(),
-});
-
-/**
- * Libreta de destinatarios para automatizaciones a personas específicas
- * (triggers opportunity_* y acciones send_*_to_user).
- * Solo el superadministrador puede gestionar este catálogo.
- */
-export const automationRecipients = mysqlTable("automation_recipients", {
-  id: int("id").primaryKey().autoincrement(),
-  name: varchar("name", { length: 160 }).notNull(),
-  telegramChatId: varchar("telegramChatId", { length: 64 }),
-  email: varchar("email", { length: 320 }),
-  notes: text("notes"),
-  isActive: boolean("isActive").notNull().default(true),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+export const emailCampaigns = mysqlTable(
+  "email_campaigns",
+  {
+    id: int("id").primaryKey().autoincrement(),
+    name: varchar("name", { length: 150 }).notNull(),
+    subject: varchar("subject", { length: 200 }).notNull(),
+    templateId: int("templateId"),
+    content: text("content"),
+    targetSegment: varchar("targetSegment", { length: 50 }).notNull(),
+    targetSegmentData: text("targetSegmentData"),
+    status: varchar("status", { length: 20 }).default("draft"),
+    scheduledAt: timestamp("scheduledAt"),
+    sentAt: timestamp("sentAt"),
+    totalSent: int("totalSent").default(0),
+    totalOpened: int("totalOpened").default(0),
+    totalClicked: int("totalClicked").default(0),
+    createdAt: timestamp("createdAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow(),
+  }
+);
 
 export const leadActivities = mysqlTable("leadActivities", {
   id: int("id").autoincrement().primaryKey(),
-  leadId: int("leadId")
-    .notNull()
-    .references(() => leads.id, { onDelete: "cascade" }),
+  leadId: int("leadId").notNull().references(() => leads.id, { onDelete: "cascade" }),
   activityType: mysqlEnum("activityType", [
     "lead_created",
     "lead_updated",
@@ -283,34 +250,20 @@ export const leadActivities = mysqlTable("leadActivities", {
   description: text("description"),
   payload: text("payload"),
   isSystem: boolean("isSystem").notNull().default(false),
-  createdByUserId: int("createdByUserId").references(() => users.id, {
-    onDelete: "set null",
-  }),
+  createdByUserId: int("createdByUserId").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export const leadCalendarSyncs = mysqlTable("leadCalendarSyncs", {
   id: int("id").autoincrement().primaryKey(),
-  leadId: int("leadId")
-    .notNull()
-    .references(() => leads.id, { onDelete: "cascade" }),
+  leadId: int("leadId").notNull().references(() => leads.id, { onDelete: "cascade" }),
   externalCalendarId: varchar("externalCalendarId", { length: 255 }),
   externalEventId: varchar("externalEventId", { length: 255 }),
-  syncAction: mysqlEnum("syncAction", [
-    "create",
-    "update",
-    "skip",
-    "error",
-    "manual",
-  ]).notNull(),
-  syncStatus: mysqlEnum("syncStatus", ["pending", "success", "error"])
-    .notNull()
-    .default("pending"),
+  syncAction: mysqlEnum("syncAction", ["create", "update", "skip", "error", "manual"]).notNull(),
+  syncStatus: mysqlEnum("syncStatus", ["pending", "success", "error"]).notNull().default("pending"),
   requestFingerprint: varchar("requestFingerprint", { length: 255 }),
   message: text("message"),
-  triggeredByUserId: int("triggeredByUserId").references(() => users.id, {
-    onDelete: "set null",
-  }),
+  triggeredByUserId: int("triggeredByUserId").references(() => users.id, { onDelete: "set null" }),
   syncedAt: timestamp("syncedAt").defaultNow().notNull(),
 });
 
@@ -331,6 +284,3 @@ export type CustomLabel = typeof customLabels.$inferSelect;
 export type CustomChannel = typeof customChannels.$inferSelect;
 export type AutomationRule = typeof automationRules.$inferSelect;
 export type EmailCampaign = typeof emailCampaigns.$inferSelect;
-export type AutomationRecipient = typeof automationRecipients.$inferSelect;
-export type InsertAutomationRecipient =
-  typeof automationRecipients.$inferInsert;

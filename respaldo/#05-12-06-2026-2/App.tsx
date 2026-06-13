@@ -12,7 +12,6 @@ import { PipelineSettingsPage } from "./pages/PipelineSettingsPage";
 import { LabelsManagerPage } from "./pages/LabelsManagerPage";
 import { ChannelsManagerPage } from "./pages/ChannelsManagerPage";
 import { AutomationsPage } from "./pages/AutomationsPage";
-import { AutomationRecipientsPage } from "./pages/AutomationRecipientsPage";
 import { EmailMarketingPage } from "./pages/EmailMarketingPage";
 import SettingsPage from "./pages/SettingsPage";
 
@@ -24,23 +23,10 @@ function ProtectedDashboardRoutes() {
         <Route path={"/leads"} component={LeadsPage} />
         <Route path={"/embudo"} component={PipelinePage} />
         <Route path={"/configuracion"} component={SettingsPage} />
-        <Route
-          path={"/configuracion/embudo"}
-          component={PipelineSettingsPage}
-        />
-        <Route
-          path={"/configuracion/etiquetas"}
-          component={LabelsManagerPage}
-        />
-        <Route
-          path={"/configuracion/canales"}
-          component={ChannelsManagerPage}
-        />
+        <Route path={"/configuracion/embudo"} component={PipelineSettingsPage} />
+        <Route path={"/configuracion/etiquetas"} component={LabelsManagerPage} />
+        <Route path={"/configuracion/canales"} component={ChannelsManagerPage} />
         <Route path={"/automatizaciones"} component={AutomationsPage} />
-        <Route
-          path={"/automatizaciones/destinatarios"}
-          component={AutomationRecipientsPage}
-        />
         <Route path={"/email-marketing"} component={EmailMarketingPage} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
