@@ -255,14 +255,8 @@ export async function executeRuleAction(rule: any, lead: Lead, userId: number) {
       }
 
       try {
-        await sendTelegramAlert({
-          type: alertType,
-          leadName: lead.nombreCliente,
-          leadValue: lead.valorTotal,
-          agentName: lead.agenteResponsable || "Sin asignar",
-          city: lead.ciudad || "Sin ciudad",
-          details: lead.motivoPerdido || undefined,
-        });
+        const telegramContext = await buildTelegramContext(lead, userId, rule);
+        await sendTelegramAlert(alertType, telegramContext);
         return { action: "send_telegram", status: "sent" };
       } catch (error) {
         console.error(
@@ -369,14 +363,12 @@ export async function executeRuleAction(rule: any, lead: Lead, userId: number) {
       }
       const alertType = pickTelegramAlertType(lead);
       try {
-        await sendTelegramAlertToAgent(recipient.telegramChatId, {
-          type: alertType,
-          leadName: lead.nombreCliente,
-          leadValue: lead.valorTotal,
-          agentName: lead.agenteResponsable || "Sin asignar",
-          city: lead.ciudad || "Sin ciudad",
-          details: lead.motivoPerdido || undefined,
-        });
+        const telegramContext = await buildTelegramContext(lead, userId, rule);
+        await sendTelegramAlertToAgent(
+          recipient.telegramChatId,
+          alertType,
+          telegramContext
+        );
         await db.recordAutomationEmail(
           lead.id,
           recipient.telegramChatId,
@@ -652,6 +644,84 @@ function pickTelegramAlertType(
   if (lead.estadoLead === "perdido") return "lead_lost";
   if (lead.estadoLead === "propuesta") return "urgent_lead";
   return "urgent_lead";
+}
+
+const TRIGGER_LABELS: Record<string, string> = {
+  lead_created: "Nuevo lead",
+  status_changed: "Cambio de estado",
+  label_added: "Etiqueta añadida",
+  gestion_vencida: "Gestión vencida",
+  proxima_a_vencer: "Próximo a vencer",
+  opportunity_won: "Oportunidad ganada",
+  opportunity_lost: "Oportunidad perdida",
+  opportunity_proposal_sent: "Propuesta enviada",
+  daily_schedule: "Programación diaria",
+};
+
+/**
+ * Construye el contexto enriquecido que se pasa al servicio de Telegram.
+ * Carga el agente (de users) y el usuario que disparó la regla.
+ */
+async function buildTelegramContext(
+  lead: Lead,
+  triggeredByUserId: number,
+  rule: any
+): Promise<import("./telegram.service").TelegramAlertContext> {
+  let agent: { name?: string | null; email?: string | null } | null = null;
+  if (lead.agenteUserId) {
+    try {
+      const u = await db.getUserById(lead.agenteUserId);
+      if (u) {
+        agent = { name: u.name, email: u.email };
+      }
+    } catch (e) {
+      // silencioso
+    }
+  }
+
+  let triggeredByName: string | null = null;
+  try {
+    const u = await db.getUserById(triggeredByUserId);
+    if (u) {
+      triggeredByName = u.name || u.email || `Usuario #${triggeredByUserId}`;
+    }
+  } catch (e) {
+    // silencioso
+  }
+
+  return {
+    lead: {
+      nombreCliente: lead.nombreCliente,
+      publicId: lead.publicId,
+      ciudad: lead.ciudad,
+      valorTotal: lead.valorTotal,
+      estadoLead: lead.estadoLead,
+      motivoVisita: lead.motivoVisita,
+      tipoEvento: lead.tipoEvento,
+      canalOrigen: lead.canalOrigen,
+      fechaIngresoLead: lead.fechaIngresoLead,
+      fechaVisita: lead.fechaVisita,
+      fechaLimiteGestion: lead.fechaLimiteGestion,
+      labels: lead.labels,
+      cantidadMultiple: lead.cantidadMultiple,
+      cantidadJunior: lead.cantidadJunior,
+      cantidadSenior: lead.cantidadSenior,
+      cantidadParqueadero: lead.cantidadParqueadero,
+      precioMultiple: lead.precioMultiple,
+      precioJunior: lead.precioJunior,
+      precioSenior: lead.precioSenior,
+      precioParqueadero: lead.precioParqueadero,
+      motivoPerdido: lead.motivoPerdido,
+      agenteResponsable: lead.agenteResponsable,
+    },
+    agent,
+    triggeredByUserName: triggeredByName,
+    triggerLabel:
+      (rule?.trigger && TRIGGER_LABELS[rule.trigger]) ||
+      rule?.name ||
+      rule?.trigger ||
+      null,
+  };
 }
 
 /**
