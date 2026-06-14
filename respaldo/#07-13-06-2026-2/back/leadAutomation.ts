@@ -201,35 +201,6 @@ function computeIsOverdueNow(
 }
 
 /**
- * Resuelve el `kind` (open/won/lost/paused) del lead en el pipeline principal.
- * En el modelo de múltiples embudos, el `estadoLead` del lead corresponde al
- * `name` del stage del pipeline "Principal". Esta función consulta la BD
- * para resolver el `kind` real. Si no se encuentra, usa una inferencia
- * heurística basada en el `name` del estado para mantener retro-compatibilidad.
- */
-export async function resolveLeadKind(
-  lead: Lead
-): Promise<"open" | "won" | "lost" | "paused"> {
-  try {
-    const defaultPipeline = await db.getDefaultPipeline();
-    if (defaultPipeline) {
-      const stage = await db.getPipelineStageByName(
-        defaultPipeline.id,
-        lead.estadoLead
-      );
-      if (stage) return stage.kind;
-    }
-  } catch (e) {
-    // silencioso
-  }
-  // Fallback heurístico (compatibilidad con stages sin migrar)
-  if (lead.estadoLead === "ganado") return "won";
-  if (lead.estadoLead === "perdido") return "lost";
-  if (lead.estadoLead === "pausado") return "paused";
-  return "open";
-}
-
-/**
  * Ejecuta la acción definida en la regla.
  */
 export async function executeRuleAction(rule: any, lead: Lead, userId: number) {

@@ -84,64 +84,18 @@ export const settingsChangeLogs = mysqlTable("settingsChangeLogs", {
 });
 
 /**
- * Tabla de embudos (pipelines). Cada embudo tiene sus propias fases.
- */
-export const pipelines = mysqlTable("pipelines", {
-  id: int("id").primaryKey().autoincrement(),
-  name: varchar("name", { length: 100 }).notNull(),
-  description: text("description"),
-  color: varchar("color", { length: 7 }).default("#3b82f6"),
-  order: int("order").default(0),
-  isActive: boolean("isActive").default(true),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-/**
- * Tabla para almacenar etapas de embudo personalizadas.
- * Cada fase pertenece a UN pipeline. El campo `kind` define su tipo semántico:
- *  - open: fase normal, sigue el flujo.
- *  - won: cierre positivo (terminal).
- *  - lost: cierre negativo (terminal).
- *  - paused: en espera.
+ * Tabla para almacenar etapas de embudo personalizadas
  */
 export const pipelineStages = mysqlTable("pipeline_stages", {
   id: int("id").primaryKey().autoincrement(),
-  pipelineId: int("pipelineId").notNull(),
   name: varchar("name", { length: 100 }).notNull(),
   displayName: varchar("displayName", { length: 100 }).notNull(),
   color: varchar("color", { length: 7 }).default("#3b82f6"),
   order: int("order").default(0),
   isActive: boolean("isActive").default(true),
-  kind: mysqlEnum("kind", ["open", "won", "lost", "paused"])
-    .notNull()
-    .default("open"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow(),
 });
-
-/**
- * Relación N:1 entre leads y fases por pipeline.
- * Un lead puede estar en UNA fase por cada pipeline.
- */
-export const leadPipelineStages = mysqlTable(
-  "lead_pipeline_stages",
-  {
-    id: int("id").primaryKey().autoincrement(),
-    leadId: int("leadId").notNull(),
-    pipelineId: int("pipelineId").notNull(),
-    stageId: int("stageId").notNull(),
-    movedAt: timestamp("movedAt").defaultNow().notNull(),
-    movedByUserId: int("movedByUserId"),
-  },
-  table => ({
-    uniqLeadPipeline: {
-      name: "uniq_lead_pipeline",
-      columns: [table.leadId, table.pipelineId],
-      isUnique: true,
-    } as any,
-  })
-);
 
 /**
  * Tabla para etiquetas personalizadas
@@ -373,11 +327,6 @@ export type InsertLeadActivity = typeof leadActivities.$inferInsert;
 export type LeadCalendarSync = typeof leadCalendarSyncs.$inferSelect;
 export type InsertLeadCalendarSync = typeof leadCalendarSyncs.$inferInsert;
 export type PipelineStage = typeof pipelineStages.$inferSelect;
-export type InsertPipelineStage = typeof pipelineStages.$inferInsert;
-export type Pipeline = typeof pipelines.$inferSelect;
-export type InsertPipeline = typeof pipelines.$inferInsert;
-export type LeadPipelineStage = typeof leadPipelineStages.$inferSelect;
-export type InsertLeadPipelineStage = typeof leadPipelineStages.$inferInsert;
 export type CustomLabel = typeof customLabels.$inferSelect;
 export type CustomChannel = typeof customChannels.$inferSelect;
 export type AutomationRule = typeof automationRules.$inferSelect;

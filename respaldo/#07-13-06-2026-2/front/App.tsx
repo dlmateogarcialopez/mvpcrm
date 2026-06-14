@@ -9,7 +9,6 @@ import Home from "./pages/Home";
 import LeadsPage from "./pages/LeadsPage";
 import { PipelinePage } from "./pages/PipelinePage";
 import { PipelineSettingsPage } from "./pages/PipelineSettingsPage";
-import { PipelinesManagerPage } from "./pages/PipelinesManagerPage";
 import { LabelsManagerPage } from "./pages/LabelsManagerPage";
 import { ChannelsManagerPage } from "./pages/ChannelsManagerPage";
 import { AutomationsPage } from "./pages/AutomationsPage";
@@ -25,11 +24,6 @@ function ProtectedDashboardRoutes() {
         <Route path={"/leads"} component={LeadsPage} />
         <Route path={"/embudo"} component={PipelinePage} />
         <Route path={"/configuracion"} component={SettingsPage} />
-        <Route path={"/embudos"} component={PipelinesManagerPage} />
-        <Route
-          path={"/embudos/:id/configurar"}
-          component={PipelineSettingsPage}
-        />
         <Route
           path={"/configuracion/embudo"}
           component={PipelineSettingsPage}

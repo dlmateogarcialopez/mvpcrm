@@ -5,11 +5,19 @@ import {
   addLeadActivity,
   createLead,
   getDashboardSnapshot,
+  getDefaultPipeline,
   getLeadByPublicId,
+  getPipelineStage,
+  getPipelineStageByName,
+  listLeadPipelineAssignmentsWithDetails,
   listLeads,
+  listLeadsByPipeline,
   listLeadsForExport,
+  removeLeadFromPipeline,
+  setLeadStageInPipeline,
   updateLead,
   updateLeadStatus,
+  updateLeadStatusField,
   type CurrentUser,
 } from "../db";
 import {
@@ -51,9 +59,11 @@ export const leadsRouter = router({
     return getDashboardSnapshot(toCurrentUser(ctx.user));
   }),
 
-  list: protectedProcedure.input(leadFiltersSchema).query(async ({ ctx, input }) => {
-    return listLeads(input, toCurrentUser(ctx.user));
-  }),
+  list: protectedProcedure
+    .input(leadFiltersSchema)
+    .query(async ({ ctx, input }) => {
+      return listLeads(input, toCurrentUser(ctx.user));
+    }),
 
   exportSpreadsheet: protectedProcedure.mutation(async ({ ctx }) => {
     const rows = await listLeadsForExport(toCurrentUser(ctx.user));
@@ -63,7 +73,8 @@ export const leadsRouter = router({
 
     return {
       fileName: `crm-leads-${stamp}.xlsx`,
-      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       rowCount: rows.length,
       exportedAt: exportedAt.toISOString(),
       base64: workbook.toString("base64"),
@@ -74,79 +85,281 @@ export const leadsRouter = router({
     return loadLeadOrThrow(input.publicId, toCurrentUser(ctx.user));
   }),
 
-  create: protectedProcedure.input(leadCreateSchema).mutation(async ({ ctx, input }) => {
-    const currentUser = toCurrentUser(ctx.user);
-    const lead = await createLead(input, currentUser);
+  create: protectedProcedure
+    .input(leadCreateSchema)
+    .mutation(async ({ ctx, input }) => {
+      const currentUser = toCurrentUser(ctx.user);
+      const lead = await createLead(input, currentUser);
 
-    if (!lead) {
-      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "No fue posible crear el lead." });
-    }
+      if (!lead) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "No fue posible crear el lead.",
+        });
+      }
 
-    const automation = await runLeadAutomation(lead, ctx.user.id);
-    const refreshedLead = await loadLeadOrThrow(lead.publicId, currentUser);
+      const automation = await runLeadAutomation(lead, ctx.user.id);
+      const refreshedLead = await loadLeadOrThrow(lead.publicId, currentUser);
 
-    return {
-      lead: refreshedLead,
-      automation,
-    };
-  }),
+      return {
+        lead: refreshedLead,
+        automation,
+      };
+    }),
 
-  update: protectedProcedure.input(leadUpdateSchema).mutation(async ({ ctx, input }) => {
-    const currentUser = toCurrentUser(ctx.user);
-    const lead = await updateLead(input, currentUser);
+  /**
+   * Lista los leads asignados a un pipeline específico, con su stageId
+   * correspondiente para agrupación visual en el panel de embudo.
+   */
+  listByPipeline: protectedProcedure
+    .input(z.object({ pipelineId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const currentUser = toCurrentUser(ctx.user);
+      return listLeadsByPipeline(input.pipelineId, currentUser);
+    }),
 
-    if (!lead) {
-      throw new TRPCError({ code: "NOT_FOUND", message: "Lead no encontrado o sin permisos para editarlo." });
-    }
+  update: protectedProcedure
+    .input(leadUpdateSchema)
+    .mutation(async ({ ctx, input }) => {
+      const currentUser = toCurrentUser(ctx.user);
+      const lead = await updateLead(input, currentUser);
 
-    const automation = await runLeadAutomation(lead, ctx.user.id);
-    const refreshedLead = await loadLeadOrThrow(lead.publicId, currentUser);
+      if (!lead) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Lead no encontrado o sin permisos para editarlo.",
+        });
+      }
 
-    return {
-      lead: refreshedLead,
-      automation,
-    };
-  }),
+      const automation = await runLeadAutomation(lead, ctx.user.id);
+      const refreshedLead = await loadLeadOrThrow(lead.publicId, currentUser);
 
-  updateStatus: protectedProcedure.input(leadStatusUpdateSchema).mutation(async ({ ctx, input }) => {
-    const currentUser = toCurrentUser(ctx.user);
-    const lead = await updateLeadStatus(input, currentUser);
+      return {
+        lead: refreshedLead,
+        automation,
+      };
+    }),
 
-    if (!lead) {
-      throw new TRPCError({ code: "NOT_FOUND", message: "Lead no encontrado o sin permisos para actualizarlo." });
-    }
+  updateStatus: protectedProcedure
+    .input(leadStatusUpdateSchema)
+    .mutation(async ({ ctx, input }) => {
+      const currentUser = toCurrentUser(ctx.user);
+      const lead = await updateLeadStatus(input, currentUser);
 
-    const automation = await runLeadAutomation(lead, ctx.user.id);
-    const refreshedLead = await loadLeadOrThrow(lead.publicId, currentUser);
+      if (!lead) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Lead no encontrado o sin permisos para actualizarlo.",
+        });
+      }
 
-    return {
-      lead: refreshedLead,
-      automation,
-    };
-  }),
+      // Mantener sincronizado el lead_pipeline_stages del pipeline por defecto.
+      const defaultPipeline = await getDefaultPipeline();
+      if (defaultPipeline) {
+        const stage = await getPipelineStageByName(
+          defaultPipeline.id,
+          lead.estadoLead ?? ""
+        );
+        if (stage) {
+          const numericLeadId =
+            typeof lead.id === "string" ? parseInt(lead.id, 10) : lead.id;
+          if (Number.isFinite(numericLeadId)) {
+            await setLeadStageInPipeline(
+              numericLeadId,
+              defaultPipeline.id,
+              stage.id,
+              ctx.user.id
+            );
+          }
+        }
+      }
 
-  addActivity: protectedProcedure.input(leadActivityCreateSchema).mutation(async ({ ctx, input }) => {
-    const currentUser = toCurrentUser(ctx.user);
-    const lead = await addLeadActivity(input, currentUser);
+      const automation = await runLeadAutomation(lead, ctx.user.id);
+      const refreshedLead = await loadLeadOrThrow(lead.publicId, currentUser);
 
-    if (!lead) {
-      throw new TRPCError({ code: "NOT_FOUND", message: "Lead no encontrado o sin permisos para registrar actividad." });
-    }
+      return {
+        lead: refreshedLead,
+        automation,
+      };
+    }),
 
-    return lead;
-  }),
+  /**
+   * Mueve un lead a una fase dentro de un pipeline específico.
+   * Si el pipeline es el "Principal" (por defecto), también actualiza
+   * el `estadoLead` denormalizado del lead.
+   */
+  moveStageInPipeline: protectedProcedure
+    .input(
+      z.object({
+        publicId: z.string(),
+        pipelineId: z.number(),
+        stageId: z.number(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const currentUser = toCurrentUser(ctx.user);
+      const lead = await loadLeadOrThrow(input.publicId, currentUser);
 
-  runAutomation: protectedProcedure.input(leadIdSchema).mutation(async ({ ctx, input }) => {
-    const currentUser = toCurrentUser(ctx.user);
-    const lead = await loadLeadOrThrow(input.publicId, currentUser);
-    const automation = await runLeadAutomation(lead, ctx.user.id);
-    const refreshedLead = await loadLeadOrThrow(input.publicId, currentUser);
+      const stage = await getPipelineStage(input.stageId);
+      if (!stage || stage.pipelineId !== input.pipelineId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "La fase no pertenece al pipeline indicado.",
+        });
+      }
 
-    return {
-      lead: refreshedLead,
-      automation,
-    };
-  }),
+      const numericLeadId =
+        typeof lead.id === "string" ? parseInt(lead.id, 10) : lead.id;
+      if (!Number.isFinite(numericLeadId)) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "ID de lead inválido.",
+        });
+      }
+
+      await setLeadStageInPipeline(
+        numericLeadId,
+        input.pipelineId,
+        input.stageId,
+        ctx.user.id
+      );
+
+      // Si el pipeline es el principal, actualizar estadoLead denormalizado.
+      const defaultPipeline = await getDefaultPipeline();
+      if (defaultPipeline && defaultPipeline.id === input.pipelineId) {
+        // Llamamos a updateLeadStatus con el estadoLead del stage
+        // (asumiendo que lead.estadoLead coincide con el name del stage).
+        await updateLeadStatusField(numericLeadId, stage.name, ctx.user.id);
+      }
+
+      const refreshedLead = await loadLeadOrThrow(input.publicId, currentUser);
+      return { lead: refreshedLead };
+    }),
+
+  /**
+   * Lista las asignaciones del lead a pipelines con detalles (nombre de
+   * pipeline y stage) para mostrar en el panel de la página del lead.
+   */
+  leadPipelineAssignments: protectedProcedure
+    .input(z.object({ publicId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const currentUser = toCurrentUser(ctx.user);
+      const lead = await loadLeadOrThrow(input.publicId, currentUser);
+      const numericLeadId =
+        typeof lead.id === "string" ? parseInt(lead.id, 10) : lead.id;
+      if (!Number.isFinite(numericLeadId)) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "ID de lead inválido.",
+        });
+      }
+      return listLeadPipelineAssignmentsWithDetails(numericLeadId);
+    }),
+
+  /**
+   * Añade al lead a un pipeline nuevo (o cambia su fase dentro de uno existente).
+   */
+  addToPipeline: protectedProcedure
+    .input(
+      z.object({
+        publicId: z.string(),
+        pipelineId: z.number(),
+        stageId: z.number(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const currentUser = toCurrentUser(ctx.user);
+      const lead = await loadLeadOrThrow(input.publicId, currentUser);
+
+      const stage = await getPipelineStage(input.stageId);
+      if (!stage || stage.pipelineId !== input.pipelineId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "La fase no pertenece al pipeline indicado.",
+        });
+      }
+
+      const numericLeadId =
+        typeof lead.id === "string" ? parseInt(lead.id, 10) : lead.id;
+      if (!Number.isFinite(numericLeadId)) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "ID de lead inválido.",
+        });
+      }
+
+      await setLeadStageInPipeline(
+        numericLeadId,
+        input.pipelineId,
+        input.stageId,
+        ctx.user.id
+      );
+
+      // Si el pipeline es el principal, actualizar el estadoLead denormalizado.
+      const defaultPipeline = await getDefaultPipeline();
+      if (defaultPipeline && defaultPipeline.id === input.pipelineId) {
+        await updateLeadStatusField(numericLeadId, stage.name, ctx.user.id);
+      }
+
+      return { success: true };
+    }),
+
+  /**
+   * Quita al lead de un pipeline. Se puede quitar de cualquier pipeline,
+   * incluido el Principal. El `leads.estadoLead` se mantiene con su valor actual.
+   */
+  removeFromPipeline: protectedProcedure
+    .input(
+      z.object({
+        publicId: z.string(),
+        pipelineId: z.number(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const currentUser = toCurrentUser(ctx.user);
+      const lead = await loadLeadOrThrow(input.publicId, currentUser);
+      const numericLeadId =
+        typeof lead.id === "string" ? parseInt(lead.id, 10) : lead.id;
+      if (!Number.isFinite(numericLeadId)) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "ID de lead inválido.",
+        });
+      }
+      await removeLeadFromPipeline(numericLeadId, input.pipelineId);
+      return { success: true };
+    }),
+
+  addActivity: protectedProcedure
+    .input(leadActivityCreateSchema)
+    .mutation(async ({ ctx, input }) => {
+      const currentUser = toCurrentUser(ctx.user);
+      const lead = await addLeadActivity(input, currentUser);
+
+      if (!lead) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message:
+            "Lead no encontrado o sin permisos para registrar actividad.",
+        });
+      }
+
+      return lead;
+    }),
+
+  runAutomation: protectedProcedure
+    .input(leadIdSchema)
+    .mutation(async ({ ctx, input }) => {
+      const currentUser = toCurrentUser(ctx.user);
+      const lead = await loadLeadOrThrow(input.publicId, currentUser);
+      const automation = await runLeadAutomation(lead, ctx.user.id);
+      const refreshedLead = await loadLeadOrThrow(input.publicId, currentUser);
+
+      return {
+        lead: refreshedLead,
+        automation,
+      };
+    }),
 
   downloadTemplate: protectedProcedure.query(async () => {
     const headers = [
@@ -164,9 +377,9 @@ export const leadsRouter = router({
       "Cantidad parqueadero",
       "Canal de origen",
       "Agente responsable",
-      "Notas internas"
+      "Notas internas",
     ];
-    
+
     const exampleRow = [
       "Juan Pérez",
       "3001234567",
@@ -182,7 +395,7 @@ export const leadsRouter = router({
       "0",
       "whatsapp",
       "Equipo comercial",
-      "Cliente sumamente interesado en el plan corporativo con parqueadero incluido."
+      "Cliente sumamente interesado en el plan corporativo con parqueadero incluido.",
     ];
 
     const sheetRows = [headers, exampleRow];
@@ -200,7 +413,8 @@ export const leadsRouter = router({
 
     return {
       fileName: `plantilla-importacion-leads.xlsx`,
-      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       base64: buffer.toString("base64"),
     };
   }),
@@ -251,40 +465,81 @@ export const leadsRouter = router({
       for (const row of jsonData) {
         const findVal = (keys: string[]) => {
           for (const key of Object.keys(row)) {
-            const normalizedKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const normalizedKey = key
+              .toLowerCase()
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "");
             if (keys.includes(normalizedKey)) return row[key];
           }
           return undefined;
         };
 
-        const nombreCliente = findVal(["cliente", "nombre", "nombre cliente", "contacto"]) || "";
-        const telefono = findVal(["telefono", "celular", "contacto telefono"]) || "";
-        const correo = findVal(["correo", "email", "mail", "contacto correo"]) || "";
+        const nombreCliente =
+          findVal(["cliente", "nombre", "nombre cliente", "contacto"]) || "";
+        const telefono =
+          findVal(["telefono", "celular", "contacto telefono"]) || "";
+        const correo =
+          findVal(["correo", "email", "mail", "contacto correo"]) || "";
 
         // Saltar si faltan los campos requeridos mínimos
-        if (!String(nombreCliente).trim() || !String(telefono).trim() || !String(correo).trim()) {
+        if (
+          !String(nombreCliente).trim() ||
+          !String(telefono).trim() ||
+          !String(correo).trim()
+        ) {
           continue;
         }
 
         const ciudad = findVal(["ciudad", "empresa ciudad"]) || "";
         const nombreEmpresa = findVal(["empresa", "nombre empresa"]) || "";
-        const motivoVisita = findVal(["motivo de visita", "motivo visita", "motivo"]) || "Importado desde Excel";
-        const objecionPrincipal = findVal(["objecion principal", "objecion"]) || "Ninguna";
-        const tipoEventoRaw = findVal(["motivo de viaje", "tipo evento", "evento"]) || "otro";
+        const motivoVisita =
+          findVal(["motivo de visita", "motivo visita", "motivo"]) ||
+          "Importado desde Excel";
+        const objecionPrincipal =
+          findVal(["objecion principal", "objecion"]) || "Ninguna";
+        const tipoEventoRaw =
+          findVal(["motivo de viaje", "tipo evento", "evento"]) || "otro";
         const fechaVisitaRaw = findVal(["fecha visita", "fecha"]);
-        
-        const cantidadMultiple = Number(findVal(["cantidad multiple", "multiple"]) || 0);
-        const cantidadJunior = Number(findVal(["cantidad junior", "junior"]) || 0);
-        const cantidadSenior = Number(findVal(["cantidad senior", "senior"]) || 0);
-        const cantidadParqueadero = Number(findVal(["cantidad parqueadero", "parqueadero"]) || 0);
-        
-        const canalOrigen = findVal(["canal de origen", "canal", "canal origen"]) || "otro";
-        const agenteResponsable = findVal(["agente responsable", "agente", "responsable"]) || "";
+
+        const cantidadMultiple = Number(
+          findVal(["cantidad multiple", "multiple"]) || 0
+        );
+        const cantidadJunior = Number(
+          findVal(["cantidad junior", "junior"]) || 0
+        );
+        const cantidadSenior = Number(
+          findVal(["cantidad senior", "senior"]) || 0
+        );
+        const cantidadParqueadero = Number(
+          findVal(["cantidad parqueadero", "parqueadero"]) || 0
+        );
+
+        const canalOrigen =
+          findVal(["canal de origen", "canal", "canal origen"]) || "otro";
+        const agenteResponsable =
+          findVal(["agente responsable", "agente", "responsable"]) || "";
         const notasInternas = findVal(["notas internas", "notas"]) || "";
 
-        const normalizeLeadSource = (value: string): "whatsapp" | "instagram" | "facebook" | "web" | "llamada" | "referido" | "otro" => {
+        const normalizeLeadSource = (
+          value: string
+        ):
+          | "whatsapp"
+          | "instagram"
+          | "facebook"
+          | "web"
+          | "llamada"
+          | "referido"
+          | "otro" => {
           const v = value.toLowerCase().trim();
-          const valid = ["whatsapp", "instagram", "facebook", "web", "llamada", "referido", "otro"];
+          const valid = [
+            "whatsapp",
+            "instagram",
+            "facebook",
+            "web",
+            "llamada",
+            "referido",
+            "otro",
+          ];
           return valid.includes(v) ? (v as any) : "otro";
         };
 
@@ -298,17 +553,25 @@ export const leadsRouter = router({
           objecionPrincipal: String(objecionPrincipal).trim(),
           tipoEvento: normalizeLeadTravelReason(String(tipoEventoRaw).trim()),
           fechaVisita: parseExcelDate(fechaVisitaRaw),
-          
+
           cantidadMultiple,
           cantidadJunior,
           cantidadSenior,
           cantidadParqueadero,
-          
-          precioMultiple: Number(findVal(["precio multiple", "precio unidad multiple"]) || 99000),
-          precioJunior: Number(findVal(["precio junior", "precio unidad junior"]) || 69000),
-          precioSenior: Number(findVal(["precio senior", "precio unidad senior"]) || 69000),
-          precioParqueadero: Number(findVal(["precio parqueadero", "precio unidad parqueadero"]) || 8000),
-          
+
+          precioMultiple: Number(
+            findVal(["precio multiple", "precio unidad multiple"]) || 99000
+          ),
+          precioJunior: Number(
+            findVal(["precio junior", "precio unidad junior"]) || 69000
+          ),
+          precioSenior: Number(
+            findVal(["precio senior", "precio unidad senior"]) || 69000
+          ),
+          precioParqueadero: Number(
+            findVal(["precio parqueadero", "precio unidad parqueadero"]) || 8000
+          ),
+
           canalOrigen: normalizeLeadSource(String(canalOrigen)),
           agenteUserId: null,
           agenteResponsable: String(agenteResponsable).trim(),
@@ -317,7 +580,9 @@ export const leadsRouter = router({
           notasInternas: String(notasInternas).trim(),
           motivoPerdido: "",
           motivoPausa: "",
-          leadPartyKind: String(nombreEmpresa).trim() ? ("empresa" as const) : ("persona" as const),
+          leadPartyKind: String(nombreEmpresa).trim()
+            ? ("empresa" as const)
+            : ("persona" as const),
         };
 
         const lead = await createLead(leadInput, currentUser);

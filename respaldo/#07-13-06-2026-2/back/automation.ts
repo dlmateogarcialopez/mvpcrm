@@ -31,8 +31,92 @@ function requireSuperadmin(ctx: { user: { role: string } }) {
 }
 
 export const automationRouter = router({
-  // Las fases de pipeline ahora se gestionan en el router `pipeline`.
-  // Las semillas se aplican vía migración 0010_multiple_pipelines.sql.
+  // Pipeline Stages
+  listStages: protectedProcedure.query(async () => {
+    const stages = await db.listPipelineStages();
+    if (stages.length === 0) {
+      await db.createPipelineStage({
+        name: "nuevo",
+        displayName: "Nuevo",
+        color: "#3b82f6",
+        order: 1,
+        isActive: true,
+      });
+      await db.createPipelineStage({
+        name: "contactado",
+        displayName: "Contactado",
+        color: "#a855f7",
+        order: 2,
+        isActive: true,
+      });
+      await db.createPipelineStage({
+        name: "calificado",
+        displayName: "Calificado",
+        color: "#6366f1",
+        order: 3,
+        isActive: true,
+      });
+      await db.createPipelineStage({
+        name: "propuesta",
+        displayName: "Propuesta Enviada",
+        color: "#eab308",
+        order: 4,
+        isActive: true,
+      });
+      await db.createPipelineStage({
+        name: "negociacion",
+        displayName: "Negociación",
+        color: "#f97316",
+        order: 5,
+        isActive: true,
+      });
+      await db.createPipelineStage({
+        name: "ganado",
+        displayName: "Ganado",
+        color: "#22c55e",
+        order: 6,
+        isActive: true,
+      });
+      await db.createPipelineStage({
+        name: "perdido",
+        displayName: "Perdido",
+        color: "#ef4444",
+        order: 7,
+        isActive: true,
+      });
+      await db.createPipelineStage({
+        name: "pausado",
+        displayName: "Pausado",
+        color: "#6b7280",
+        order: 8,
+        isActive: true,
+      });
+      return db.listPipelineStages();
+    }
+    return stages;
+  }),
+
+  updateStages: protectedProcedure
+    .input(z.array(z.any()))
+    .mutation(async ({ input }) => {
+      // Acepta un array de stages con {id, name, displayName, color, order, isActive}
+      // y actualiza la BD en consecuencia.
+      if (!Array.isArray(input) || input.length === 0) {
+        return { success: true };
+      }
+      for (const s of input) {
+        if (s && typeof s.id === "number") {
+          await db.updatePipelineStage(s.id, {
+            name: s.name,
+            displayName: s.displayName,
+            color: s.color,
+            order: s.order,
+            isActive: s.isActive,
+          });
+        }
+      }
+      return { success: true };
+    }),
 
   // Labels
   listLabels: protectedProcedure.query(async () => {

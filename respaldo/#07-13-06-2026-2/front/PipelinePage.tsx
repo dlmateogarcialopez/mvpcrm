@@ -1,6 +1,7 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Filter,
   Plus,
   Settings2,
   GripVertical,
@@ -10,7 +11,7 @@ import {
   PowerOff,
   Trash2,
 } from "lucide-react";
-import { useLocation, useSearch } from "wouter";
+import { useLocation } from "wouter";
 import { trpc, type Lead } from "../lib/trpc";
 import { toast } from "sonner";
 import {
@@ -43,28 +44,13 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
-interface Pipeline {
-  id: number;
-  name: string;
-  color: string | null;
-  isActive: boolean | null;
-}
-
 interface PipelineStage {
   id: number;
-  pipelineId: number;
   name: string;
   displayName: string;
-  color: string | null;
-  order: number | null;
+  color: string;
+  order: number;
   isActive: boolean | null;
-  kind: "open" | "won" | "lost" | "paused";
-}
-
-interface LeadInPipeline {
-  leadId: number;
-  stageId: number;
-  movedAt: Date;
 }
 
 /* ============== Tarjeta de lead (arrastrable entre columnas) ============== */
@@ -124,7 +110,7 @@ function DraggableLeadCard({ lead }: { lead: Lead }) {
   );
 }
 
-/* ============== Tarjeta de fase ============== */
+/* ============== Tarjeta de fase (sortable horizontal + menú de acciones) ============== */
 
 interface SortableStageColumnProps {
   stage: PipelineStage;
@@ -175,8 +161,8 @@ function SortableStageColumn({
     transform: CSS.Translate.toString(transform),
     transition,
     opacity: isDragging ? 0.6 : 1,
-    backgroundColor: (stage.color ?? "#3b82f6") + "10",
-    borderColor: stage.color ?? "#3b82f6",
+    backgroundColor: stage.color + "10",
+    borderColor: stage.color,
   };
 
   const handleSaveRename = () => {
@@ -196,13 +182,6 @@ function SortableStageColumn({
     setEditingName(false);
   };
 
-  // Sincronizar draftName si el stage cambia desde fuera
-  useEffect(() => {
-    if (!editingName) {
-      setDraftName(stage.displayName);
-    }
-  }, [stage.displayName, editingName]);
-
   return (
     <div
       ref={setNodeRef}
@@ -213,8 +192,10 @@ function SortableStageColumn({
         isDraggingOverlay ? "shadow-2xl cursor-grabbing" : ""
       } ${!isActive ? "opacity-60 grayscale" : ""}`}
     >
+      {/* Cabecera con handle de arrastre de fase + menú */}
       <div className="mb-3 space-y-2">
         <div className="flex items-center gap-2">
+          {/* Handle de drag de la fase (separado del body para no chocar con drag de leads) */}
           <button
             type="button"
             className="cursor-grab active:cursor-grabbing rounded p-1 text-muted-foreground hover:bg-black/5 touch-none"
@@ -259,7 +240,7 @@ function SortableStageColumn({
             <>
               <h3
                 className="flex-1 font-semibold truncate"
-                style={{ color: stage.color ?? "#3b82f6" }}
+                style={{ color: stage.color }}
               >
                 {stage.displayName}
               </h3>
@@ -343,6 +324,7 @@ function SortableStageColumn({
         </div>
       </div>
 
+      {/* Lista de leads (droppable) */}
       <div
         ref={setDropRef}
         className={`flex-1 space-y-2 min-h-[100px] rounded-xl p-1 transition-colors ${
@@ -359,6 +341,7 @@ function SortableStageColumn({
         )}
       </div>
 
+      {/* Botón agregar */}
       <button
         onClick={onAddClick}
         className="mt-4 w-full rounded-xl border-2 border-dashed p-2 text-sm font-medium text-muted-foreground transition hover:bg-black/5"
@@ -372,69 +355,24 @@ function SortableStageColumn({
 /* ============== Página principal ============== */
 
 export function PipelinePage() {
-  const [location, setLocation] = useLocation();
+  const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
 
-  // Leer pipelineId de la URL (reaccionar a cambios en query params)
-  const search = useSearch();
-  const pipelineIdFromUrl = useMemo(() => {
-    const params = new URLSearchParams(search);
-    const id = params.get("pipeline");
-    return id ? Number(id) : null;
-  }, [search]);
-
-  const pipelinesQuery = trpc.pipelines.list.useQuery(undefined, {
+  const stagesQuery = trpc.pipeline.listActive.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
-  const defaultPipelineQuery = trpc.pipelines.getDefault.useQuery(undefined, {
+  const leadCountsQuery = trpc.pipeline.leadCounts.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
-
-  const pipelines = (pipelinesQuery.data ?? []) as Pipeline[];
-  const activePipelineId =
-    pipelineIdFromUrl ?? defaultPipelineQuery.data?.id ?? null;
-  const activePipeline = pipelines.find(p => p.id === activePipelineId) ?? null;
-
-  const stagesQuery = trpc.pipeline.listActive.useQuery(
-    activePipelineId ? { pipelineId: activePipelineId } : undefined,
-    { refetchOnWindowFocus: false, enabled: !!activePipelineId }
-  );
-  const leadCountsQuery = trpc.pipeline.leadCounts.useQuery(
-    activePipelineId ? { pipelineId: activePipelineId } : undefined,
-    { refetchOnWindowFocus: false, enabled: !!activePipelineId }
-  );
-
-  const stages = (stagesQuery.data ?? []) as PipelineStage[];
-  const leadCounts: Record<number, number> =
-    (leadCountsQuery.data as Record<number, number>) ?? {};
-
-  // Cargar todas las asignaciones de leads a este pipeline
-  const leadsInPipelineQuery = trpc.pipelines.listWithStats.useQuery(
-    undefined,
-    {
-      refetchOnWindowFocus: false,
-    }
-  );
 
   const updateStatusMutation = trpc.leads.updateStatus.useMutation({
     onSuccess: () => {
       utils.leads.list.invalidate();
       utils.pipeline.leadCounts.invalidate();
-      utils.pipelines.listWithStats.invalidate();
       toast.success("Estado actualizado correctamente");
     },
     onError: error =>
       toast.error(`Error al actualizar estado: ${error.message}`),
-  });
-
-  const moveStageMutation = trpc.leads.moveStageInPipeline.useMutation({
-    onSuccess: () => {
-      utils.leads.list.invalidate();
-      utils.pipeline.leadCounts.invalidate();
-      utils.pipelines.listWithStats.invalidate();
-      toast.success("Estado actualizado correctamente");
-    },
-    onError: error => toast.error(`Error al mover lead: ${error.message}`),
   });
 
   const updateMutation = trpc.pipeline.update.useMutation({
@@ -473,7 +411,6 @@ export function PipelinePage() {
     onError: e => toast.error(`Error al reordenar: ${e.message}`),
   });
 
-  // Leads visibles (sin filtro de pipeline)
   const leadsQuery = trpc.leads.list.useQuery(
     {
       query: "",
@@ -491,24 +428,12 @@ export function PipelinePage() {
     { refetchOnWindowFocus: false }
   );
 
-  const allLeads = (leadsQuery.data ?? []) as Lead[];
+  const stages = (stagesQuery.data ?? []) as PipelineStage[];
+  const leadCounts: Record<string, number> =
+    (leadCountsQuery.data as Record<string, number>) ?? {};
+  const leads = (leadsQuery.data ?? []) as Lead[];
 
-  // Leads para pipelines no principales (sin denormalización en estadoLead)
-  const isPrincipal =
-    activePipelineId != null &&
-    defaultPipelineQuery.data?.id === activePipelineId;
-  const leadsByPipelineQuery = trpc.leads.listByPipeline.useQuery(
-    { pipelineId: activePipelineId ?? 0 },
-    {
-      refetchOnWindowFocus: false,
-      enabled: !isPrincipal && activePipelineId != null,
-    }
-  );
-  const pipelineLeads = (leadsByPipelineQuery.data ?? []) as Array<
-    Lead & { pipelineStageId: number | null }
-  >;
-
-  // Estado de drag
+  /* ----- Estado de drag ----- */
   const [activeStageId, setActiveStageId] = useState<number | null>(null);
   const [activeLeadId, setActiveLeadId] = useState<string | null>(null);
 
@@ -518,42 +443,22 @@ export function PipelinePage() {
     })
   );
 
-  // Mapeo leadId -> stageId en este pipeline.
-  // Usamos leadsInPipelineQuery (que devuelve stageId por leadId).
-  // Como listWithStats no devuelve esa info, hacemos un query específico
-  // usando `pipelines.listWithStats` (solo nos da totales) +
-  // leads visibles + el assumption de que el `estadoLead` es la fase
-  // del pipeline principal. Para múltiples embudos, esto se carga vía
-  // un query dedicado.
-  // Para esta primera versión, si el pipeline es el principal, usamos
-  // estadoLead; si no, no mostramos leads (a menos que se cargue
-  // explícitamente por pipeline).
-
+  /* ----- Datos derivados ----- */
   const leadsByStage = useMemo(() => {
-    const grouped: Record<number, Lead[]> = {};
-    for (const s of stages) grouped[s.id] = [];
-
-    if (isPrincipal) {
-      // Pipeline principal: agrupar por estadoLead (denormalizado).
-      for (const l of allLeads) {
-        const stage = stages.find(s => s.name === l.estadoLead);
-        if (stage) grouped[stage.id].push(l);
-      }
-    } else if (activePipelineId) {
-      // Otros pipelines: agrupar por pipelineStageId de listByPipeline.
-      for (const l of pipelineLeads) {
-        if (l.pipelineStageId != null && grouped[l.pipelineStageId]) {
-          grouped[l.pipelineStageId].push(l);
-        }
-      }
+    const grouped: Record<string, Lead[]> = {};
+    for (const s of stages) grouped[s.name] = [];
+    for (const l of leads) {
+      const key = (l.estadoLead as string) || "nuevo";
+      if (grouped[key]) grouped[key].push(l);
+      else if (grouped["nuevo"]) grouped["nuevo"].push(l);
     }
     return grouped;
-  }, [stages, allLeads, pipelineLeads, activePipelineId, isPrincipal]);
+  }, [leads, stages]);
 
   const stageStats = useMemo(() => {
     const stats: Record<number, { count: number; value: number }> = {};
     for (const s of stages) {
-      const arr = leadsByStage[s.id] || [];
+      const arr = leadsByStage[s.name] || [];
       stats[s.id] = {
         count: arr.length,
         value: arr.reduce((sum, l) => sum + (l.valorTotal || 0), 0),
@@ -563,10 +468,11 @@ export function PipelinePage() {
   }, [leadsByStage, stages]);
 
   const totalValue = useMemo(
-    () => allLeads.reduce((sum, l) => sum + (l.valorTotal || 0), 0),
-    [allLeads]
+    () => leads.reduce((sum, l) => sum + (l.valorTotal || 0), 0),
+    [leads]
   );
 
+  /* ----- Handlers ----- */
   const handleDragStart = (event: DragStartEvent) => {
     const data = event.active.data.current as
       | { type?: "stage" | "lead" }
@@ -584,7 +490,7 @@ export function PipelinePage() {
       | { type?: "stage" | "lead" }
       | undefined;
     const overData = over?.data.current as
-      | { type?: "drop-stage"; stageId?: number; stageName?: string }
+      | { type?: "drop-stage"; stageName?: string }
       | undefined;
 
     setActiveStageId(null);
@@ -605,28 +511,12 @@ export function PipelinePage() {
     // Drag de lead
     if (activeData?.type === "lead" || !activeData) {
       const leadId = String(active.id);
-      const targetStageId = overData?.stageId;
-      if (!targetStageId) return;
-
-      const lead = allLeads.find(l => l.publicId === leadId);
-      if (!lead) return;
-
-      const targetStage = stages.find(s => s.id === targetStageId);
-      if (!targetStage) return;
-
-      // Verificar si el lead ya está en este stage (en el pipeline principal)
-      if (isPrincipal) {
-        if (lead.estadoLead === targetStage.name) return;
+      const newStatus = overData?.stageName ?? (over.id as string);
+      const lead = leads.find(l => l.publicId === leadId);
+      if (lead && (lead.estadoLead as string) !== newStatus) {
         updateStatusMutation.mutate({
           publicId: leadId,
-          estadoLead: targetStage.name as any,
-        });
-      } else {
-        // Para otros pipelines, usar moveStageInPipeline
-        moveStageMutation.mutate({
-          publicId: leadId,
-          pipelineId: activePipelineId!,
-          stageId: targetStageId,
+          estadoLead: newStatus as any,
         });
       }
     }
@@ -643,19 +533,15 @@ export function PipelinePage() {
     deleteMutation.mutate({ id });
   };
 
-  const handlePipelineChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const id = Number(e.target.value);
-    setLocation(`/embudo?pipeline=${id}`);
-  };
-
+  /* ----- Renderizado ----- */
   const activeStage = activeStageId
     ? (stages.find(s => s.id === activeStageId) ?? null)
     : null;
   const activeLead = activeLeadId
-    ? (allLeads.find(l => l.publicId === activeLeadId) ?? null)
+    ? (leads.find(l => l.publicId === activeLeadId) ?? null)
     : null;
 
-  if (stagesQuery.isLoading || pipelinesQuery.isLoading) {
+  if (stagesQuery.isLoading) {
     return (
       <div className="space-y-6 p-6">
         <p className="text-sm text-muted-foreground">Cargando embudo...</p>
@@ -663,7 +549,7 @@ export function PipelinePage() {
     );
   }
 
-  if (pipelines.length === 0) {
+  if (stages.length === 0) {
     return (
       <div className="space-y-6 p-6">
         <div className="space-y-2">
@@ -671,12 +557,15 @@ export function PipelinePage() {
             Embudo Comercial
           </h1>
           <p className="text-muted-foreground">
-            No hay embudos configurados. Crea el primero desde la gestión de
-            embudos.
+            No hay fases configuradas. Ve a Personalizar Embudo para crear las
+            primeras.
           </p>
         </div>
-        <Button onClick={() => setLocation("/embudos")} className="gap-2">
-          <Settings2 className="h-4 w-4" /> Ir a gestión de embudos
+        <Button
+          onClick={() => setLocation("/configuracion/embudo")}
+          className="gap-2"
+        >
+          <Settings2 className="h-4 w-4" /> Configurar fases
         </Button>
       </div>
     );
@@ -684,43 +573,24 @@ export function PipelinePage() {
 
   return (
     <div className="space-y-6 p-6">
-      {/* Encabezado con selector de pipeline y botón Personalizar */}
+      {/* Encabezado con botón Personalizar */}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-2 flex-1 min-w-0">
+        <div className="space-y-2">
           <h1 className="text-3xl font-bold tracking-tight">
             Embudo Comercial
           </h1>
           <p className="text-muted-foreground">
-            Visualiza el progreso de tus oportunidades por etapa de venta.
+            Visualiza el progreso de tus oportunidades por etapa de venta. Cada
+            columna representa un estado del ciclo comercial.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-muted-foreground">Embudo:</label>
-            <select
-              value={activePipelineId ?? ""}
-              onChange={handlePipelineChange}
-              className="rounded border bg-background px-3 py-2 text-sm font-medium"
-            >
-              {pipelines.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <Button
-            onClick={() =>
-              activePipelineId
-                ? setLocation(`/embudos/${activePipelineId}/configurar`)
-                : null
-            }
-            variant="outline"
-            className="gap-2"
-          >
-            <Settings2 className="h-4 w-4" /> Personalizar Embudo
-          </Button>
-        </div>
+        <Button
+          onClick={() => setLocation("/configuracion/embudo")}
+          variant="outline"
+          className="gap-2"
+        >
+          <Settings2 className="h-4 w-4" /> Personalizar Embudo
+        </Button>
       </div>
 
       {/* Resumen */}
@@ -729,26 +599,24 @@ export function PipelinePage() {
           <p className="text-sm font-medium text-muted-foreground">
             Total de Oportunidades
           </p>
-          <p className="mt-2 text-2xl font-bold">
-            {stages.reduce((acc, s) => acc + (stageStats[s.id]?.count ?? 0), 0)}
-          </p>
+          <p className="mt-2 text-2xl font-bold">{leads.length}</p>
         </div>
         <div className="rounded-2xl border bg-card p-4">
           <p className="text-sm font-medium text-muted-foreground">
             Valor Total en Embudo
           </p>
           <p className="mt-2 text-2xl font-bold">
-            {formatCurrency(
-              stages.reduce((acc, s) => acc + (stageStats[s.id]?.value ?? 0), 0)
-            )}
+            {formatCurrency(totalValue)}
           </p>
         </div>
         <div className="rounded-2xl border bg-card p-4">
           <p className="text-sm font-medium text-muted-foreground">
-            Embudo Activo
+            Promedio por Oportunidad
           </p>
-          <p className="mt-2 text-xl font-bold truncate">
-            {activePipeline?.name ?? "—"}
+          <p className="mt-2 text-2xl font-bold">
+            {leads.length > 0
+              ? formatCurrency(totalValue / leads.length)
+              : "$0"}
           </p>
         </div>
       </div>
@@ -775,7 +643,7 @@ export function PipelinePage() {
                 <SortableStageColumn
                   key={stage.id}
                   stage={stage}
-                  leads={leadsByStage[stage.id] || []}
+                  leads={leadsByStage[stage.name] || []}
                   stats={stageStats[stage.id]}
                   onAddClick={() =>
                     setLocation(`/leads?new=true&stage=${stage.name}`)
@@ -789,19 +657,20 @@ export function PipelinePage() {
           </div>
         </SortableContext>
 
+        {/* Overlay de arrastre (cualquier tipo) */}
         <DragOverlay>
           {activeStage ? (
             <div
               className="rounded-2xl border-2 p-4 shadow-2xl cursor-grabbing rotate-1"
               style={{
-                backgroundColor: (activeStage.color ?? "#3b82f6") + "20",
-                borderColor: activeStage.color ?? "#3b82f6",
+                backgroundColor: activeStage.color + "20",
+                borderColor: activeStage.color,
                 width: 300,
               }}
             >
               <h3
                 className="font-semibold"
-                style={{ color: activeStage.color ?? "#3b82f6" }}
+                style={{ color: activeStage.color }}
               >
                 {activeStage.displayName}
               </h3>

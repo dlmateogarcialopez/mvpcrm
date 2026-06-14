@@ -71,6 +71,13 @@
       "when": 1781321286983,
       "tag": "0009_automation_recipients",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1781393431783,
+      "tag": "0010_multiple_pipelines",
+      "breakpoints": true
     }
   ]
 }

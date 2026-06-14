@@ -5,75 +5,66 @@ import * as db from "../db";
 import { renameInAutomationRules } from "../services/automationTriggers";
 
 /**
- * Router de gestión de FASES dentro de un embudo (pipeline).
- * Las fases se crean/editan dentro de un `pipelineId` específico.
- * No hay gating por rol: todos los usuarios autenticados pueden gestionar.
+ * Router de gestión del pipeline (fases personalizables del embudo).
+ * Todas las acciones requieren autenticación. No hay restricción de rol
+ * (todos los usuarios pueden gestionar el pipeline).
  */
 export const pipelineRouter = router({
-  list: protectedProcedure
-    .input(z.object({ pipelineId: z.number().optional() }).optional())
-    .query(async ({ input }) => {
-      return db.listPipelineStages(input?.pipelineId);
-    }),
+  list: protectedProcedure.query(async () => {
+    return db.listPipelineStages();
+  }),
 
-  listActive: protectedProcedure
-    .input(z.object({ pipelineId: z.number().optional() }).optional())
-    .query(async ({ input }) => {
-      const pipelineId = input?.pipelineId;
-      if (!pipelineId) {
-        return db.listActivePipelineStages();
-      }
-      return db.listActivePipelineStages(pipelineId);
-    }),
+  listActive: protectedProcedure.query(async () => {
+    const existing = await db.listPipelineStages();
+    if (existing.length === 0) {
+      // Siembra inicial: crea las fases por defecto del sistema.
+      await seedDefaultPipelineStages();
+    }
+    return db.listActivePipelineStages();
+  }),
 
   /**
-   * Conteo de leads por stageId. Para bloqueo de borrado.
+   * Devuelve el conteo de leads por nombre de fase.
+   * Útil para mostrar en la UI "X leads en esta fase" y para bloquear borrados.
    */
-  leadCounts: protectedProcedure
-    .input(z.object({ pipelineId: z.number().optional() }).optional())
-    .query(async ({ input }) => {
-      const stages = await db.listPipelineStages(input?.pipelineId);
-      const counts: Record<number, number> = {};
-      for (const s of stages) {
-        counts[s.id] = await db.countLeadsByStageId(s.id);
-      }
-      return counts;
-    }),
+  leadCounts: protectedProcedure.query(async () => {
+    const stages = await db.listPipelineStages();
+    const counts: Record<string, number> = {};
+    for (const s of stages) {
+      counts[s.name] = await db.countLeadsByStageName(s.name);
+    }
+    return counts;
+  }),
 
   create: protectedProcedure
     .input(
       z.object({
-        pipelineId: z.number(),
         name: z.string().min(1).max(100),
         displayName: z.string().min(1).max(100),
         color: z
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .default("#3b82f6"),
-        kind: z.enum(["open", "won", "lost", "paused"]).default("open"),
       })
     )
     .mutation(async ({ input }) => {
-      const all = await db.listPipelineStages(input.pipelineId);
-      const dup = all.find(
+      const existing = await db.listPipelineStages();
+      const dup = existing.find(
         s => s.name === input.name || s.displayName === input.displayName
       );
       if (dup) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message:
-            "Ya existe una fase con ese nombre interno o visible en este embudo.",
+          message: "Ya existe una fase con ese nombre interno o visible.",
         });
       }
-      const order = all.length + 1;
+      const order = existing.length + 1;
       return db.createPipelineStage({
-        pipelineId: input.pipelineId,
         name: input.name,
         displayName: input.displayName,
         color: input.color,
         order,
         isActive: true,
-        kind: input.kind,
       });
     }),
 
@@ -88,7 +79,6 @@ export const pipelineRouter = router({
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
         isActive: z.boolean().optional(),
-        kind: z.enum(["open", "won", "lost", "paused"]).optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -101,24 +91,22 @@ export const pipelineRouter = router({
         });
       }
 
-      // Validar unicidad dentro del mismo pipeline
+      // Validar unicidad si cambia name o displayName
       if (data.name && data.name !== current.name) {
-        const all = await db.listPipelineStages(current.pipelineId);
+        const all = await db.listPipelineStages();
         if (all.some(s => s.id !== id && s.name === data.name)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message:
-              "Ya existe otra fase con ese nombre interno en este embudo.",
+            message: "Ya existe otra fase con ese nombre interno.",
           });
         }
       }
       if (data.displayName && data.displayName !== current.displayName) {
-        const all = await db.listPipelineStages(current.pipelineId);
+        const all = await db.listPipelineStages();
         if (all.some(s => s.id !== id && s.displayName === data.displayName)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message:
-              "Ya existe otra fase con ese nombre visible en este embudo.",
+            message: "Ya existe otra fase con ese nombre visible.",
           });
         }
       }
@@ -131,7 +119,8 @@ export const pipelineRouter = router({
         });
       }
 
-      // Renombrado en cascada en reglas de automatización
+      // Renombrado en cascada: si cambió name o displayName, actualizar
+      // las reglas de automatización que lo referencien.
       if (data.name && data.name !== current.name) {
         await renameInAutomationRules(current.name, data.name);
       }
@@ -152,7 +141,7 @@ export const pipelineRouter = router({
           message: "Fase no encontrada.",
         });
       }
-      const leadsCount = await db.countLeadsByStageId(input.id);
+      const leadsCount = await db.countLeadsByStageName(stage.name);
       if (leadsCount > 0) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
@@ -186,8 +175,9 @@ export const pipelineRouter = router({
           message: "Fase no encontrada.",
         });
       }
+      // Si se va a desactivar, bloquear si la fase tiene leads.
       if (input.isActive === false) {
-        const leadsCount = await db.countLeadsByStageId(input.id);
+        const leadsCount = await db.countLeadsByStageName(stage.name);
         if (leadsCount > 0) {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
@@ -205,3 +195,49 @@ export const pipelineRouter = router({
       return updated;
     }),
 });
+
+/**
+ * Crea las fases por defecto del sistema si la tabla está vacía.
+ * Las fases se insertan en el orden tradicional del embudo.
+ */
+async function seedDefaultPipelineStages(): Promise<void> {
+  const defaults = [
+    { name: "nuevo", displayName: "Nuevo", color: "#3b82f6", order: 1 },
+    {
+      name: "contactado",
+      displayName: "Contactado",
+      color: "#8b5cf6",
+      order: 2,
+    },
+    {
+      name: "calificado",
+      displayName: "Calificado",
+      color: "#6366f1",
+      order: 3,
+    },
+    {
+      name: "propuesta",
+      displayName: "Propuesta Enviada",
+      color: "#f59e0b",
+      order: 4,
+    },
+    {
+      name: "negociacion",
+      displayName: "Negociación",
+      color: "#f97316",
+      order: 5,
+    },
+    { name: "ganado", displayName: "Ganado", color: "#10b981", order: 6 },
+    { name: "perdido", displayName: "Perdido", color: "#ef4444", order: 7 },
+    { name: "pausado", displayName: "Pausado", color: "#6b7280", order: 8 },
+  ];
+  for (const s of defaults) {
+    try {
+      await db.createPipelineStage({ ...s, isActive: true });
+    } catch (e) {
+      // Si una fase ya existe, ignorar.
+      console.warn(`[Pipeline] No se pudo sembrar fase ${s.name}:`, e);
+    }
+  }
+  console.log("[Pipeline] Fases por defecto sembradas.");
+}

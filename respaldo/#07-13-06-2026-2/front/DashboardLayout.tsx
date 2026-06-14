@@ -32,7 +32,6 @@ import {
   Mail,
   Loader2,
   UserCog,
-  Layers,
 } from "lucide-react";
 import React, {
   CSSProperties,
@@ -62,12 +61,6 @@ const menuItems = [
     label: "Embudo",
     path: "/embudo",
     description: "Vista visual del pipeline",
-  },
-  {
-    icon: Layers,
-    label: "Embudos",
-    path: "/embudos",
-    description: "Gestión de embudos",
   },
   {
     icon: Zap,

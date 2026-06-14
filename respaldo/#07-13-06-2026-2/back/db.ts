@@ -10,8 +10,6 @@ import {
   settingsChangeLogs,
   users,
   pipelineStages,
-  pipelines,
-  leadPipelineStages,
   customLabels,
   customChannels,
   automationRules,
@@ -22,7 +20,6 @@ import {
   type InsertAutomationRecipient,
   type Lead,
   type LeadActivity,
-  type Pipeline,
   type PipelineStage,
   type User,
 } from "../drizzle/schema";
@@ -1774,135 +1771,18 @@ export async function getDashboardSnapshot(user: CurrentUser) {
   };
 }
 
-/* ============================================================
- * CRUD de Pipelines (embudos) y Pipeline Stages (fases)
- * Cada fase pertenece a un pipeline; un lead puede estar en una
- * fase distinta por cada pipeline (relación vía lead_pipeline_stages).
- * ============================================================ */
-
-export async function listPipelines() {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  return db.select().from(pipelines).orderBy(asc(pipelines.order));
-}
-
-export async function listActivePipelines() {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  return db
-    .select()
-    .from(pipelines)
-    .where(eq(pipelines.isActive, true))
-    .orderBy(asc(pipelines.order));
-}
-
-export async function getPipeline(id: number): Promise<Pipeline | null> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const [row] = await db
-    .select()
-    .from(pipelines)
-    .where(eq(pipelines.id, id))
-    .limit(1);
-  return row ?? null;
-}
-
 /**
- * Devuelve el primer pipeline activo (orden 1). Si no hay ninguno, el primero de la tabla.
- * Se usa como "pipeline por defecto" para mantener compatibilidad.
+ * Funciones para Embudo Personalizable
  */
-export async function getDefaultPipeline(): Promise<Pipeline | null> {
+export async function listPipelineStages() {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [row] = await db
-    .select()
-    .from(pipelines)
-    .where(eq(pipelines.isActive, true))
-    .orderBy(asc(pipelines.order))
-    .limit(1);
-  if (row) return row;
-  const all = await db
-    .select()
-    .from(pipelines)
-    .orderBy(asc(pipelines.order))
-    .limit(1);
-  return all[0] ?? null;
-}
-
-export async function createPipeline(
-  data: Omit<Pipeline, "id" | "createdAt" | "updatedAt">
-): Promise<Pipeline> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const [row] = await db.insert(pipelines).values(data).$returningId();
-  if (!row) throw new Error("No fue posible crear el embudo.");
-  return getPipeline(row.id) as Promise<Pipeline>;
-}
-
-export async function updatePipeline(
-  id: number,
-  data: Partial<Omit<Pipeline, "id" | "createdAt" | "updatedAt">>
-): Promise<Pipeline | null> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.update(pipelines).set(data).where(eq(pipelines.id, id));
-  return getPipeline(id);
-}
-
-export async function setPipelineActive(
-  id: number,
-  isActive: boolean
-): Promise<Pipeline | null> {
-  return updatePipeline(id, { isActive });
-}
-
-export async function deletePipeline(id: number): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.delete(pipelines).where(eq(pipelines.id, id));
-}
-
-export async function reorderPipelines(orderedIds: number[]): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  for (let i = 0; i < orderedIds.length; i++) {
-    await db
-      .update(pipelines)
-      .set({ order: i + 1 })
-      .where(eq(pipelines.id, orderedIds[i]));
-  }
-}
-
-/* ----- Stages ----- */
-
-export async function listPipelineStages(pipelineId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  if (pipelineId) {
-    return db
-      .select()
-      .from(pipelineStages)
-      .where(eq(pipelineStages.pipelineId, pipelineId))
-      .orderBy(asc(pipelineStages.order));
-  }
   return db.select().from(pipelineStages).orderBy(asc(pipelineStages.order));
 }
 
-export async function listActivePipelineStages(pipelineId?: number) {
+export async function listActivePipelineStages() {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  if (pipelineId) {
-    return db
-      .select()
-      .from(pipelineStages)
-      .where(
-        and(
-          eq(pipelineStages.isActive, true),
-          eq(pipelineStages.pipelineId, pipelineId)
-        )
-      )
-      .orderBy(asc(pipelineStages.order));
-  }
   return db
     .select()
     .from(pipelineStages)
@@ -1910,53 +1790,13 @@ export async function listActivePipelineStages(pipelineId?: number) {
     .orderBy(asc(pipelineStages.order));
 }
 
-export async function getPipelineStage(
-  id: number
-): Promise<PipelineStage | null> {
+export async function getPipelineStage(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const [row] = await db
     .select()
     .from(pipelineStages)
     .where(eq(pipelineStages.id, id))
-    .limit(1);
-  return row ?? null;
-}
-
-export async function getPipelineStageByName(
-  pipelineId: number,
-  name: string
-): Promise<PipelineStage | null> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const [row] = await db
-    .select()
-    .from(pipelineStages)
-    .where(
-      and(
-        eq(pipelineStages.pipelineId, pipelineId),
-        eq(pipelineStages.name, name)
-      )
-    )
-    .limit(1);
-  return row ?? null;
-}
-
-export async function getPipelineStageByKind(
-  pipelineId: number,
-  kind: "open" | "won" | "lost" | "paused"
-): Promise<PipelineStage | null> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const [row] = await db
-    .select()
-    .from(pipelineStages)
-    .where(
-      and(
-        eq(pipelineStages.pipelineId, pipelineId),
-        eq(pipelineStages.kind, kind)
-      )
-    )
     .limit(1);
   return row ?? null;
 }
@@ -1995,22 +1835,8 @@ export async function deletePipelineStage(id: number): Promise<void> {
 }
 
 /**
- * Cuenta cuántos leads están en una fase (por id) en la BD.
- * Sirve para bloquear el borrado si la fase tiene leads.
- */
-export async function countLeadsByStageId(stageId: number): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const rows = await db
-    .select({ id: leadPipelineStages.leadId })
-    .from(leadPipelineStages)
-    .where(eq(leadPipelineStages.stageId, stageId));
-  return rows.length;
-}
-
-/**
- * Cuenta leads por nombre de fase en leads.estadoLead (denormalizado).
- * Mantener para retro-compatibilidad.
+ * Cuenta cuántos leads están usando un nombre de fase (estadoLead) en la BD.
+ * Sirve para bloquear el borrado si la fase tiene leads asociados.
  */
 export async function countLeadsByStageName(name: string): Promise<number> {
   const db = await getDb();
@@ -2023,8 +1849,9 @@ export async function countLeadsByStageName(name: string): Promise<number> {
 }
 
 /**
- * Reordena un conjunto de fases según el array de IDs (en el mismo pipeline).
+ * Reordena un conjunto de fases según el array de IDs.
  * El primer ID queda con order=1, el segundo con order=2, etc.
+ * Se ejecuta en una transacción para mantener consistencia.
  */
 export async function reorderPipelineStages(
   orderedIds: number[]
@@ -2037,97 +1864,6 @@ export async function reorderPipelineStages(
       .set({ order: i + 1 })
       .where(eq(pipelineStages.id, orderedIds[i]));
   }
-}
-
-/* ----- lead_pipeline_stages (relación lead × pipeline × stage) ----- */
-
-export async function getLeadStageInPipeline(
-  leadId: number,
-  pipelineId: number
-): Promise<{ id: number; stageId: number; movedAt: Date } | null> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const [row] = await db
-    .select()
-    .from(leadPipelineStages)
-    .where(
-      and(
-        eq(leadPipelineStages.leadId, leadId),
-        eq(leadPipelineStages.pipelineId, pipelineId)
-      )
-    )
-    .limit(1);
-  if (!row) return null;
-  return { id: row.id, stageId: row.stageId, movedAt: row.movedAt as any };
-}
-
-export async function listLeadStageAssignments(leadId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  return db
-    .select()
-    .from(leadPipelineStages)
-    .where(eq(leadPipelineStages.leadId, leadId));
-}
-
-export async function setLeadStageInPipeline(
-  leadId: number,
-  pipelineId: number,
-  stageId: number,
-  movedByUserId?: number
-): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  // UPSERT: si ya existe, actualiza; si no, inserta.
-  const existing = await db
-    .select({ id: leadPipelineStages.id })
-    .from(leadPipelineStages)
-    .where(
-      and(
-        eq(leadPipelineStages.leadId, leadId),
-        eq(leadPipelineStages.pipelineId, pipelineId)
-      )
-    )
-    .limit(1);
-
-  if (existing.length > 0) {
-    await db
-      .update(leadPipelineStages)
-      .set({
-        stageId,
-        movedAt: new Date(),
-        movedByUserId: movedByUserId ?? null,
-      })
-      .where(eq(leadPipelineStages.id, existing[0].id));
-  } else {
-    await db.insert(leadPipelineStages).values({
-      leadId,
-      pipelineId,
-      stageId,
-      movedByUserId: movedByUserId ?? null,
-    });
-  }
-}
-
-export async function listLeadsInStage(stageId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  return db
-    .select({ leadId: leadPipelineStages.leadId })
-    .from(leadPipelineStages)
-    .where(eq(leadPipelineStages.stageId, stageId));
-}
-
-export async function countLeadsInPipeline(
-  pipelineId: number
-): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const rows = await db
-    .select({ id: leadPipelineStages.id })
-    .from(leadPipelineStages)
-    .where(eq(leadPipelineStages.pipelineId, pipelineId));
-  return rows.length;
 }
 
 /**
@@ -2578,124 +2314,4 @@ export async function deleteAutomationRecipient(id: number): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(automationRecipients).where(eq(automationRecipients.id, id));
-}
-
-/* ============================================================
- * Helpers para asignaciones lead × pipeline × stage
- * (UI de mover leads entre embudos)
- * ============================================================ */
-
-/**
- * Devuelve las asignaciones del lead a pipelines con datos completos
- * del pipeline y del stage. Útil para mostrar en el panel de un lead.
- */
-export async function listLeadPipelineAssignmentsWithDetails(leadId: number) {
-  const dbConn = await getDb();
-  if (!dbConn) throw new Error("Database not available");
-
-  const rows = await dbConn
-    .select({
-      pipelineId: leadPipelineStages.pipelineId,
-      stageId: leadPipelineStages.stageId,
-      movedAt: leadPipelineStages.movedAt,
-    })
-    .from(leadPipelineStages)
-    .where(eq(leadPipelineStages.leadId, leadId));
-
-  const result: Array<{
-    pipelineId: number;
-    pipelineName: string;
-    pipelineColor: string | null;
-    stageId: number;
-    stageName: string;
-    stageDisplayName: string;
-    stageColor: string | null;
-    stageKind: string;
-    movedAt: Date;
-  }> = [];
-
-  for (const r of rows) {
-    const [pipeline] = await dbConn
-      .select()
-      .from(pipelines)
-      .where(eq(pipelines.id, r.pipelineId))
-      .limit(1);
-    const [stage] = await dbConn
-      .select()
-      .from(pipelineStages)
-      .where(eq(pipelineStages.id, r.stageId))
-      .limit(1);
-    if (pipeline && stage) {
-      result.push({
-        pipelineId: pipeline.id,
-        pipelineName: pipeline.name,
-        pipelineColor: pipeline.color,
-        stageId: stage.id,
-        stageName: stage.name,
-        stageDisplayName: stage.displayName,
-        stageColor: stage.color,
-        stageKind: stage.kind,
-        movedAt: r.movedAt as any,
-      });
-    }
-  }
-
-  return result;
-}
-
-/**
- * Quita al lead de un pipeline (elimina la asignación en lead_pipeline_stages).
- * Si era el pipeline Principal, el `leads.estadoLead` se mantiene con el valor anterior.
- */
-export async function removeLeadFromPipeline(
-  leadId: number,
-  pipelineId: number
-): Promise<void> {
-  const dbConn = await getDb();
-  if (!dbConn) throw new Error("Database not available");
-  await dbConn
-    .delete(leadPipelineStages)
-    .where(
-      and(
-        eq(leadPipelineStages.leadId, leadId),
-        eq(leadPipelineStages.pipelineId, pipelineId)
-      )
-    );
-}
-
-/**
- * Devuelve todos los leads asignados a un pipeline, con su stageId
- * correspondiente. Usa lead_pipeline_stages y enriquece via enrichLead.
- * El resultado incluye el campo `pipelineStageId` para agrupación visual.
- */
-export async function listLeadsByPipeline(
-  pipelineId: number,
-  user: CurrentUser
-) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  const rows = await db
-    .select({
-      leadId: leadPipelineStages.leadId,
-      stageId: leadPipelineStages.stageId,
-    })
-    .from(leadPipelineStages)
-    .where(eq(leadPipelineStages.pipelineId, pipelineId));
-
-  const stageMap = new Map<number, number>(); // leadId -> stageId
-  for (const r of rows) {
-    stageMap.set(r.leadId, r.stageId);
-  }
-
-  if (stageMap.size === 0) return [];
-
-  const leadIds = Array.from(stageMap.keys());
-  const allRows = await listVisibleLeadRows(user);
-  const filtered = allRows.filter(row => leadIds.includes(row.id));
-
-  return filtered.map(row => ({
-    ...enrichLead(row),
-    pipelineStageId: stageMap.get(row.id) ?? null,
-  }));
 }

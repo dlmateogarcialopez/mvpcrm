@@ -8,7 +8,6 @@ import { leadsRouter } from "./routers/leads";
 import { settingsRouter } from "./routers/settings";
 import { automationRouter } from "./routers/automation";
 import { pipelineRouter } from "./routers/pipeline";
-import { pipelinesRouter } from "./routers/pipelines";
 import { hashPassword, verifyPassword } from "./_core/password";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
@@ -150,7 +149,6 @@ export const appRouter = router({
   settings: settingsRouter,
   automation: automationRouter,
   pipeline: pipelineRouter,
-  pipelines: pipelinesRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -1,15 +1,5 @@
 import { useState } from "react";
-import {
-  Plus,
-  Trash2,
-  Edit2,
-  Check,
-  X,
-  Send,
-  BarChart3,
-  Mail,
-  Loader2,
-} from "lucide-react";
+import { Plus, Trash2, Edit2, Check, X, Send, BarChart3, Mail, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -41,15 +31,10 @@ export function EmailMarketingPage() {
   const campaigns = (campaignsQuery.data ?? []) as unknown as EmailCampaign[];
 
   // Cargar etapas de embudo y etiquetas para el selector de segmentos
-  const stagesQuery = trpc.pipeline.list.useQuery(undefined, {
+  const stagesQuery = trpc.automation.listStages.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
-  const stages = (stagesQuery.data ?? []) as Array<{
-    id: number;
-    name: string;
-    displayName: string;
-    color: string | null;
-  }>;
+  const stages = stagesQuery.data ?? [];
 
   const labelsQuery = trpc.automation.listLabels.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -69,7 +54,7 @@ export function EmailMarketingPage() {
       setNewCampaignSegment("all");
       setNewCampaignSegmentData("");
     },
-    onError: error => {
+    onError: (error) => {
       toast.error(`Error al crear campaña: ${error.message}`);
     },
   });
@@ -80,7 +65,7 @@ export function EmailMarketingPage() {
       toast.success("Campaña actualizada");
       setEditingId(null);
     },
-    onError: error => {
+    onError: (error) => {
       toast.error(`Error al actualizar campaña: ${error.message}`);
     },
   });
@@ -90,19 +75,17 @@ export function EmailMarketingPage() {
       utils.automation.listCampaigns.invalidate();
       toast.success("Campaña eliminada");
     },
-    onError: error => {
+    onError: (error) => {
       toast.error(`Error al eliminar campaña: ${error.message}`);
     },
   });
 
   const sendMutation = trpc.automation.sendCampaign.useMutation({
-    onSuccess: data => {
+    onSuccess: (data) => {
       utils.automation.listCampaigns.invalidate();
-      toast.success(
-        `¡Campaña enviada! Se procesaron ${data.totalSent} correos.`
-      );
+      toast.success(`¡Campaña enviada! Se procesaron ${data.totalSent} correos.`);
     },
-    onError: error => {
+    onError: (error) => {
       toast.error(`Error al enviar campaña: ${error.message}`);
     },
   });
@@ -131,8 +114,7 @@ export function EmailMarketingPage() {
       subject: newCampaignSubject,
       content: newCampaignContent,
       targetSegment: newCampaignSegment,
-      targetSegmentData:
-        newCampaignSegment === "all" ? null : newCampaignSegmentData || null,
+      targetSegmentData: newCampaignSegment === "all" ? null : newCampaignSegmentData || null,
     });
   };
 
@@ -179,9 +161,7 @@ export function EmailMarketingPage() {
     };
     const currentStatus = status || "draft";
     return (
-      <span
-        className={`inline-block rounded-full px-3 py-1 text-xs font-medium ${styles[currentStatus] || styles.draft}`}
-      >
+      <span className={`inline-block rounded-full px-3 py-1 text-xs font-medium ${styles[currentStatus] || styles.draft}`}>
         {labels[currentStatus] || labels.draft}
       </span>
     );
@@ -190,15 +170,11 @@ export function EmailMarketingPage() {
   const getSegmentLabel = (segment: string, data: string | null) => {
     if (segment === "all") return "Todos los leads";
     if (segment === "stage") {
-      const stage = stages.find(
-        s => String(s.name) === String(data) || String(s.id) === String(data)
-      );
+      const stage = stages.find(s => String(s.name) === String(data) || String(s.id) === String(data));
       return `Segmento · Etapa: ${stage?.displayName || data || "Sin especificar"}`;
     }
     if (segment === "label") {
-      const label = labels.find(
-        l => String(l.id) === String(data) || String(l.name) === String(data)
-      );
+      const label = labels.find(l => String(l.id) === String(data) || String(l.name) === String(data));
       return `Segmento · Etiqueta: ${label?.name || data || "Sin especificar"}`;
     }
     return `Segmento · ${segment}`;
@@ -224,39 +200,29 @@ export function EmailMarketingPage() {
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">Email Marketing</h1>
         <p className="text-muted-foreground">
-          Crea y gestiona campañas de email para mantener a tus leads
-          comprometidos de forma segmentada.
+          Crea y gestiona campañas de email para mantener a tus leads comprometidos de forma segmentada.
         </p>
       </div>
 
       {/* Estadísticas Generales */}
       <div className="grid gap-4 sm:grid-cols-4">
         <div className="rounded-2xl border bg-card p-4">
-          <p className="text-sm font-medium text-muted-foreground">
-            Campañas Totales
-          </p>
+          <p className="text-sm font-medium text-muted-foreground">Campañas Totales</p>
           <p className="mt-2 text-2xl font-bold">{campaigns.length}</p>
         </div>
         <div className="rounded-2xl border bg-card p-4">
-          <p className="text-sm font-medium text-muted-foreground">
-            Emails Enviados
-          </p>
+          <p className="text-sm font-medium text-muted-foreground">Emails Enviados</p>
           <p className="mt-2 text-2xl font-bold">
             {campaigns.reduce((sum, c) => sum + (c.totalSent || 0), 0)}
           </p>
         </div>
         <div className="rounded-2xl border bg-card p-4">
-          <p className="text-sm font-medium text-muted-foreground">
-            Tasa de Apertura Promedio
-          </p>
+          <p className="text-sm font-medium text-muted-foreground">Tasa de Apertura Promedio</p>
           <p className="mt-2 text-2xl font-bold">
             {campaigns.length > 0
               ? Math.round(
                   (campaigns.reduce((sum, c) => sum + (c.totalOpened || 0), 0) /
-                    Math.max(
-                      campaigns.reduce((sum, c) => sum + (c.totalSent || 0), 0),
-                      1
-                    )) *
+                    Math.max(campaigns.reduce((sum, c) => sum + (c.totalSent || 0), 0), 1)) *
                     100
                 )
               : 0}
@@ -264,20 +230,12 @@ export function EmailMarketingPage() {
           </p>
         </div>
         <div className="rounded-2xl border bg-card p-4">
-          <p className="text-sm font-medium text-muted-foreground">
-            Tasa de Clics Promedio
-          </p>
+          <p className="text-sm font-medium text-muted-foreground">Tasa de Clics Promedio</p>
           <p className="mt-2 text-2xl font-bold">
             {campaigns.length > 0
               ? Math.round(
-                  (campaigns.reduce(
-                    (sum, c) => sum + (c.totalClicked || 0),
-                    0
-                  ) /
-                    Math.max(
-                      campaigns.reduce((sum, c) => sum + (c.totalSent || 0), 0),
-                      1
-                    )) *
+                  (campaigns.reduce((sum, c) => sum + (c.totalClicked || 0), 0) /
+                    Math.max(campaigns.reduce((sum, c) => sum + (c.totalSent || 0), 0), 1)) *
                     100
                 )
               : 0}
@@ -299,62 +257,42 @@ export function EmailMarketingPage() {
         <div className="rounded-2xl border bg-card p-6 space-y-4">
           <h3 className="font-semibold text-lg">Nueva Campaña de Email</h3>
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-muted-foreground">
-              Nombre de la Campaña (Interno)
-            </label>
-            <Input
-              value={newCampaignName}
-              onChange={e => setNewCampaignName(e.target.value)}
-              placeholder="Ej: Seguimiento de Leads Calientes"
+            <label className="text-xs font-semibold text-muted-foreground">Nombre de la Campaña (Interno)</label>
+            <Input 
+              value={newCampaignName} 
+              onChange={e => setNewCampaignName(e.target.value)} 
+              placeholder="Ej: Seguimiento de Leads Calientes" 
             />
           </div>
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-muted-foreground">
-              Asunto del Correo
-            </label>
-            <Input
-              value={newCampaignSubject}
-              onChange={e => setNewCampaignSubject(e.target.value)}
-              placeholder="Ej: Hola {{nombre}}, ¿cómo va todo con tu evento?"
+            <label className="text-xs font-semibold text-muted-foreground">Asunto del Correo</label>
+            <Input 
+              value={newCampaignSubject} 
+              onChange={e => setNewCampaignSubject(e.target.value)} 
+              placeholder="Ej: Hola {{nombre}}, ¿cómo va todo con tu evento?" 
             />
             <p className="text-[11px] text-muted-foreground">
-              Puedes usar variables:{" "}
-              <code className="bg-muted px-1 py-0.5 rounded">
-                {"{{nombre}}"}
-              </code>
-              ,{" "}
-              <code className="bg-muted px-1 py-0.5 rounded">
-                {"{{empresa}}"}
-              </code>
-              , o{" "}
-              <code className="bg-muted px-1 py-0.5 rounded">
-                {"{{valor}}"}
-              </code>
-              .
+              Puedes usar variables: <code className="bg-muted px-1 py-0.5 rounded">{"{{nombre}}"}</code>, <code className="bg-muted px-1 py-0.5 rounded">{"{{empresa}}"}</code>, o <code className="bg-muted px-1 py-0.5 rounded">{"{{valor}}"}</code>.
             </p>
           </div>
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-muted-foreground">
-              Contenido del Mensaje
-            </label>
-            <Textarea
-              value={newCampaignContent}
-              onChange={e => setNewCampaignContent(e.target.value)}
-              placeholder="Escribe el cuerpo del correo electrónico aquí..."
-              rows={6}
+            <label className="text-xs font-semibold text-muted-foreground">Contenido del Mensaje</label>
+            <Textarea 
+              value={newCampaignContent} 
+              onChange={e => setNewCampaignContent(e.target.value)} 
+              placeholder="Escribe el cuerpo del correo electrónico aquí..." 
+              rows={6} 
             />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-muted-foreground">
-                Segmento Destinatario
-              </label>
-              <select
-                value={newCampaignSegment}
+              <label className="text-xs font-semibold text-muted-foreground">Segmento Destinatario</label>
+              <select 
+                value={newCampaignSegment} 
                 onChange={e => {
                   setNewCampaignSegment(e.target.value);
                   setNewCampaignSegmentData("");
-                }}
+                }} 
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
               >
                 <option value="all">Todos los leads</option>
@@ -365,19 +303,15 @@ export function EmailMarketingPage() {
 
             {newCampaignSegment === "stage" && (
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-muted-foreground">
-                  Seleccionar Etapa
-                </label>
-                <select
-                  value={newCampaignSegmentData}
-                  onChange={e => setNewCampaignSegmentData(e.target.value)}
+                <label className="text-xs font-semibold text-muted-foreground">Seleccionar Etapa</label>
+                <select 
+                  value={newCampaignSegmentData} 
+                  onChange={e => setNewCampaignSegmentData(e.target.value)} 
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                 >
                   <option value="">Selecciona una etapa...</option>
                   {stages.map(stage => (
-                    <option key={stage.id} value={stage.name}>
-                      {stage.displayName}
-                    </option>
+                    <option key={stage.id} value={stage.name}>{stage.displayName}</option>
                   ))}
                 </select>
               </div>
@@ -385,19 +319,15 @@ export function EmailMarketingPage() {
 
             {newCampaignSegment === "label" && (
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-muted-foreground">
-                  Seleccionar Etiqueta
-                </label>
-                <select
-                  value={newCampaignSegmentData}
-                  onChange={e => setNewCampaignSegmentData(e.target.value)}
+                <label className="text-xs font-semibold text-muted-foreground">Seleccionar Etiqueta</label>
+                <select 
+                  value={newCampaignSegmentData} 
+                  onChange={e => setNewCampaignSegmentData(e.target.value)} 
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                 >
                   <option value="">Selecciona una etiqueta...</option>
                   {labels.map(label => (
-                    <option key={label.id} value={label.id}>
-                      {label.name}
-                    </option>
+                    <option key={label.id} value={label.id}>{label.name}</option>
                   ))}
                 </select>
               </div>
@@ -405,11 +335,7 @@ export function EmailMarketingPage() {
           </div>
 
           <div className="flex gap-2 pt-2">
-            <Button
-              onClick={handleAddCampaign}
-              disabled={createMutation.isPending}
-              className="flex-1"
-            >
+            <Button onClick={handleAddCampaign} disabled={createMutation.isPending} className="flex-1">
               {createMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -422,11 +348,7 @@ export function EmailMarketingPage() {
                 </>
               )}
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => setShowNewCampaignForm(false)}
-              className="flex-1"
-            >
+            <Button variant="outline" onClick={() => setShowNewCampaignForm(false)} className="flex-1">
               Cancelar
             </Button>
           </div>
@@ -444,16 +366,12 @@ export function EmailMarketingPage() {
             <Mail className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
             <h3 className="font-semibold text-lg">No hay campañas de email</h3>
             <p className="text-muted-foreground text-sm max-w-sm mx-auto mt-1">
-              Crea tu primera campaña para comunicarte con tus leads y mejorar
-              tus conversiones.
+              Crea tu primera campaña para comunicarte con tus leads y mejorar tus conversiones.
             </p>
           </div>
         ) : (
           campaigns.map(campaign => (
-            <div
-              key={campaign.id}
-              className="rounded-2xl border bg-card p-4 transition-all hover:shadow-sm"
-            >
+            <div key={campaign.id} className="rounded-2xl border bg-card p-4 transition-all hover:shadow-sm">
               {editingId === campaign.id ? (
                 <div className="space-y-3">
                   <Input
@@ -467,20 +385,10 @@ export function EmailMarketingPage() {
                     placeholder="Asunto del email"
                   />
                   <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={handleEditSave}
-                      disabled={updateMutation.isPending}
-                      className="flex-1"
-                    >
+                    <Button size="sm" onClick={handleEditSave} disabled={updateMutation.isPending} className="flex-1">
                       {updateMutation.isPending ? "Guardando..." : "Guardar"}
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleEditCancel}
-                      className="flex-1"
-                    >
+                    <Button size="sm" variant="outline" onClick={handleEditCancel} className="flex-1">
                       Cancelar
                     </Button>
                   </div>
@@ -491,19 +399,12 @@ export function EmailMarketingPage() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <Mail className="h-5 w-5 text-muted-foreground" />
-                        <h3 className="font-semibold text-base">
-                          {campaign.name}
-                        </h3>
+                        <h3 className="font-semibold text-base">{campaign.name}</h3>
                         <span className="text-xs bg-muted px-2 py-0.5 rounded text-muted-foreground font-medium">
-                          {getSegmentLabel(
-                            campaign.targetSegment,
-                            campaign.targetSegmentData
-                          )}
+                          {getSegmentLabel(campaign.targetSegment, campaign.targetSegmentData)}
                         </span>
                       </div>
-                      <p className="mt-1 text-sm font-medium">
-                        {campaign.subject}
-                      </p>
+                      <p className="mt-1 text-sm font-medium">{campaign.subject}</p>
                       {campaign.content && (
                         <p className="mt-1 text-xs text-muted-foreground line-clamp-2 bg-muted/40 p-2 rounded">
                           {campaign.content}
@@ -513,33 +414,22 @@ export function EmailMarketingPage() {
                     {getStatusBadge(campaign.status)}
                   </div>
 
-                  {campaign.status === "sent" &&
-                    (campaign.totalSent || 0) > 0 && (
-                      <div className="grid gap-2 sm:grid-cols-3 text-sm bg-muted/20 p-3 rounded-xl border border-muted-foreground/10">
-                        <div className="flex items-center gap-2">
-                          <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                          <span>
-                            <strong>{campaign.totalSent}</strong> enviados
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-green-600 font-semibold">
-                            {calculateOpenRate(campaign)}% abiertos
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            ({campaign.totalOpened} aperturas)
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-blue-600 font-semibold">
-                            {calculateClickRate(campaign)}% clics
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            ({campaign.totalClicked} clics)
-                          </span>
-                        </div>
+                  {campaign.status === "sent" && (campaign.totalSent || 0) > 0 && (
+                    <div className="grid gap-2 sm:grid-cols-3 text-sm bg-muted/20 p-3 rounded-xl border border-muted-foreground/10">
+                      <div className="flex items-center gap-2">
+                        <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                        <span><strong>{campaign.totalSent}</strong> enviados</span>
                       </div>
-                    )}
+                      <div className="flex items-center gap-2">
+                        <span className="text-green-600 font-semibold">{calculateOpenRate(campaign)}% abiertos</span>
+                        <span className="text-xs text-muted-foreground">({campaign.totalOpened} aperturas)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-blue-600 font-semibold">{calculateClickRate(campaign)}% clics</span>
+                        <span className="text-xs text-muted-foreground">({campaign.totalClicked} clics)</span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex gap-2 flex-wrap">
                     {campaign.status === "draft" && (

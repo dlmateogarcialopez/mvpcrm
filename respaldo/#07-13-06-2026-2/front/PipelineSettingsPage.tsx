@@ -1,5 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect } from "react";
 import {
   DndContext,
   closestCenter,
@@ -36,54 +35,31 @@ import { toast } from "sonner";
 
 interface PipelineStage {
   id: number;
-  pipelineId: number;
   name: string;
   displayName: string;
-  color: string | null;
-  order: number | null;
+  color: string;
+  order: number;
   isActive: boolean | null;
-  kind: "open" | "won" | "lost" | "paused";
 }
 
 const DEFAULT_COLOR = "#3b82f6";
 
 export function PipelineSettingsPage() {
   const utils = trpc.useUtils();
-  const [location, setLocation] = useLocation();
-
-  // Determinar pipelineId desde la URL: /embudos/:id/configurar
-  const pipelineIdFromUrl = useMemo(() => {
-    const match = location.match(/^\/embudos\/(\d+)\/configurar/);
-    return match ? Number(match[1]) : null;
-  }, [location]);
-
-  const pipelinesQuery = trpc.pipelines.list.useQuery(undefined, {
+  const stagesQuery = trpc.pipeline.list.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
-  const defaultPipelineQuery = trpc.pipelines.getDefault.useQuery(undefined, {
+  const leadCountsQuery = trpc.pipeline.leadCounts.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
-
-  const activePipelineId =
-    pipelineIdFromUrl ?? defaultPipelineQuery.data?.id ?? null;
-
-  const stagesQuery = trpc.pipeline.list.useQuery(
-    activePipelineId ? { pipelineId: activePipelineId } : undefined,
-    { refetchOnWindowFocus: false, enabled: !!activePipelineId }
-  );
-  const leadCountsQuery = trpc.pipeline.leadCounts.useQuery(
-    activePipelineId ? { pipelineId: activePipelineId } : undefined,
-    { refetchOnWindowFocus: false, enabled: !!activePipelineId }
-  );
 
   const stages: PipelineStage[] = (stagesQuery.data ?? []) as PipelineStage[];
-  const leadCounts: Record<number, number> =
-    (leadCountsQuery.data as Record<number, number>) ?? {};
+  const leadCounts: Record<string, number> =
+    (leadCountsQuery.data as Record<string, number>) ?? {};
 
   const createMutation = trpc.pipeline.create.useMutation({
     onSuccess: () => {
       utils.pipeline.list.invalidate();
-      utils.pipeline.listActive.invalidate();
       utils.pipeline.leadCounts.invalidate();
       toast.success("Fase creada");
     },
@@ -93,7 +69,6 @@ export function PipelineSettingsPage() {
   const updateMutation = trpc.pipeline.update.useMutation({
     onSuccess: () => {
       utils.pipeline.list.invalidate();
-      utils.pipeline.listActive.invalidate();
       utils.pipeline.leadCounts.invalidate();
       toast.success("Fase actualizada");
     },
@@ -103,7 +78,6 @@ export function PipelineSettingsPage() {
   const deleteMutation = trpc.pipeline.delete.useMutation({
     onSuccess: () => {
       utils.pipeline.list.invalidate();
-      utils.pipeline.listActive.invalidate();
       utils.pipeline.leadCounts.invalidate();
       toast.success("Fase eliminada");
     },
@@ -113,7 +87,6 @@ export function PipelineSettingsPage() {
   const reorderMutation = trpc.pipeline.reorder.useMutation({
     onSuccess: () => {
       utils.pipeline.list.invalidate();
-      utils.pipeline.listActive.invalidate();
     },
     onError: e => toast.error(`Error al reordenar: ${e.message}`),
   });
@@ -131,17 +104,11 @@ export function PipelineSettingsPage() {
   const [editingName, setEditingName] = useState("");
   const [editingDisplayName, setEditingDisplayName] = useState("");
   const [editingColor, setEditingColor] = useState("");
-  const [editingKind, setEditingKind] = useState<
-    "open" | "won" | "lost" | "paused"
-  >("open");
 
   const [showCreate, setShowCreate] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createDisplayName, setCreateDisplayName] = useState("");
   const [createColor, setCreateColor] = useState(DEFAULT_COLOR);
-  const [createKind, setCreateKind] = useState<
-    "open" | "won" | "lost" | "paused"
-  >("open");
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -166,8 +133,7 @@ export function PipelineSettingsPage() {
     setEditingId(stage.id);
     setEditingName(stage.name);
     setEditingDisplayName(stage.displayName);
-    setEditingColor(stage.color ?? DEFAULT_COLOR);
-    setEditingKind(stage.kind);
+    setEditingColor(stage.color);
   };
 
   const handleEditSave = () => {
@@ -188,7 +154,7 @@ export function PipelineSettingsPage() {
   const handleEditCancel = () => setEditingId(null);
 
   const handleDelete = (stage: PipelineStage) => {
-    const count = leadCounts[stage.id] ?? 0;
+    const count = leadCounts[stage.name] ?? 0;
     if (count > 0) {
       toast.error(
         `La fase "${stage.displayName}" tiene ${count} lead(s). Muévelos a otra fase antes de eliminarla.`
@@ -211,19 +177,12 @@ export function PipelineSettingsPage() {
       toast.error("El nombre interno y el visible son obligatorios");
       return;
     }
-    if (!activePipelineId) {
-      toast.error("Selecciona un embudo primero");
-      return;
-    }
     createMutation.mutate({
-      pipelineId: activePipelineId,
       name: createName.trim(),
       displayName: createDisplayName.trim(),
       color: createColor,
-      kind: createKind,
     });
     setShowCreate(false);
-    setCreateKind("open");
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -370,7 +329,7 @@ export function PipelineSettingsPage() {
                   onEditCancel={handleEditCancel}
                   onDelete={() => handleDelete(stage)}
                   onToggleActive={() => handleToggleActive(stage)}
-                  leadCount={leadCounts[stage.id] ?? 0}
+                  leadCount={leadCounts[stage.name] ?? 0}
                 />
               ))}
             </div>
@@ -398,15 +357,15 @@ export function PipelineSettingsPage() {
                   <div
                     className="h-16 w-28 rounded-lg border-2 flex items-center justify-center text-center text-xs font-semibold"
                     style={{
-                      borderColor: stage.color ?? DEFAULT_COLOR,
-                      backgroundColor: (stage.color ?? DEFAULT_COLOR) + "20",
-                      color: stage.color ?? DEFAULT_COLOR,
+                      borderColor: stage.color,
+                      backgroundColor: stage.color + "20",
+                      color: stage.color,
                     }}
                   >
                     {stage.displayName}
                   </div>
                   <span className="text-[10px] text-muted-foreground">
-                    {leadCounts[stage.id] ?? 0} lead(s)
+                    {leadCounts[stage.name] ?? 0} lead(s)
                   </span>
                 </div>
               ))}
@@ -523,8 +482,8 @@ function SortableStageRow({
           <div
             className="h-10 w-10 shrink-0 rounded-full border-2"
             style={{
-              backgroundColor: stage.color ?? DEFAULT_COLOR,
-              borderColor: stage.color ?? DEFAULT_COLOR,
+              backgroundColor: stage.color,
+              borderColor: stage.color,
             }}
           />
           <div className="flex-1 min-w-0">
