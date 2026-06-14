@@ -27,7 +27,6 @@ import {
   LogOut,
   PanelLeft,
   Settings2,
-  Kanban,
   Zap,
   Mail,
   Loader2,
@@ -58,16 +57,11 @@ const menuItems = [
     description: "Embudo y seguimiento",
   },
   {
-    icon: Kanban,
-    label: "Embudo",
-    path: "/embudo",
-    description: "Vista visual del pipeline",
-  },
-  {
     icon: Layers,
-    label: "Embudos",
+    label: "Embudo",
     path: "/embudos",
-    description: "Gestión de embudos",
+    description: "Gestión y visualización de embudos",
+    matchPaths: ["/embudos", "/embudo"],
   },
   {
     icon: Zap,
@@ -193,7 +187,12 @@ function DashboardLayoutContent({
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const activeMenuItem =
-    menuItems.find(item => item.path === location) ?? menuItems[0];
+    menuItems.find(
+      item =>
+        item.path === location ||
+        (item.matchPaths &&
+          item.matchPaths.some((p: string) => location.startsWith(p)))
+    ) ?? menuItems[0];
   const visibleMenuItems = menuItems.filter(item => {
     if (item.superadminOnly) return user?.role === "superadmin";
     return true;
@@ -269,7 +268,12 @@ function DashboardLayoutContent({
           <SidebarContent className="gap-0 px-2 py-4">
             <SidebarMenu>
               {visibleMenuItems.map(item => {
-                const isActive = location === item.path;
+                const isActive =
+                  location === item.path ||
+                  (item.matchPaths &&
+                    item.matchPaths.some((p: string) =>
+                      location.startsWith(p)
+                    ));
                 return (
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton
