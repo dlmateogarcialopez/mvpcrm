@@ -382,6 +382,82 @@ export default function LeadsPage() {
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
 
+  // Pipeline selections for lead creation
+  const [pipelineSelections, setPipelineSelections] = useState<
+    Array<{ pipelineId: number; stageId: number }>
+  >([]);
+  const pipelinesQuery = trpc.pipelines.listActive.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
+  const defaultPipelineQuery = trpc.pipelines.getDefault.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
+  const pipelines = (pipelinesQuery.data ?? []) as Array<{
+    id: number;
+    name: string;
+    color: string | null;
+  }>;
+
+  // Cuando cambian los pipelines, precargar la selección por defecto
+  useEffect(() => {
+    if (pipelines.length > 0 && pipelineSelections.length === 0) {
+      const defaultId = defaultPipelineQuery.data?.id;
+      if (defaultId) {
+        setPipelineSelections([
+          { pipelineId: defaultId, stageId: 0 }, // stageId se resuelve abajo
+        ]);
+      }
+    }
+  }, [pipelines, defaultPipelineQuery.data?.id]);
+
+  // Limpiar selecciones cuando se abre modo creación
+  useEffect(() => {
+    if (mode === "create") {
+      const defaultId = defaultPipelineQuery.data?.id;
+      if (defaultId) {
+        setPipelineSelections([{ pipelineId: defaultId, stageId: 0 }]);
+      } else {
+        setPipelineSelections([]);
+      }
+    }
+  }, [mode]);
+
+  // Cargar todas las fases de todos los pipelines para los selectores
+  const allStagesQuery = trpc.pipeline.list.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
+  const allStages = (allStagesQuery.data ?? []) as Array<{
+    id: number;
+    pipelineId: number;
+    displayName: string;
+    isActive: boolean | null;
+  }>;
+  const stagesByPipeline = useMemo(() => {
+    const map: Record<number, Array<{ id: number; displayName: string }>> = {};
+    for (const s of allStages) {
+      if (!s.isActive) continue;
+      if (!map[s.pipelineId]) map[s.pipelineId] = [];
+      map[s.pipelineId].push({ id: s.id, displayName: s.displayName });
+    }
+    return map;
+  }, [allStages]);
+
+  // Auto-seleccionar primera fase de cada pipeline marcado
+  useEffect(() => {
+    let changed = false;
+    const updated = pipelineSelections.map(sel => {
+      if (sel.stageId === 0 || !sel.stageId) {
+        const stages = stagesByPipeline[sel.pipelineId];
+        if (stages && stages.length > 0) {
+          changed = true;
+          return { ...sel, stageId: stages[0].id };
+        }
+      }
+      return sel;
+    });
+    if (changed) setPipelineSelections(updated);
+  }, [stagesByPipeline]);
+
   const leadsQuery = trpc.leads.list.useQuery(filters, {
     refetchOnWindowFocus: false,
   });
@@ -896,7 +972,10 @@ export default function LeadsPage() {
       ultimaGestion: _ultimaGestion,
       ...createPayload
     } = normalizedForm;
-    await createMutation.mutateAsync(createPayload satisfies LeadCreateInput);
+    await createMutation.mutateAsync({
+      ...createPayload,
+      pipelineAssignments: pipelineSelections.filter(s => s.stageId > 0),
+    } satisfies LeadCreateInput & { pipelineAssignments?: any });
   }
 
   async function handleQuickStatus(status: (typeof leadStatusValues)[number]) {
@@ -2257,6 +2336,84 @@ export default function LeadsPage() {
                 placeholder="Anota acuerdos, riesgos y contexto útil para la siguiente gestión"
               />
             </label>
+
+            {/* --- SECCIÓN DE EMBUDOS --- */}
+            {mode === "create" && pipelines.length > 0 && (
+              <div className="rounded-2xl border bg-muted/20 p-4 space-y-3">
+                <h3 className="font-medium text-sm flex items-center gap-2">
+                  📊 Embudos donde aparecerá esta oportunidad
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Selecciona en qué embudos quieres que aparezca y en qué fase
+                  inicial.
+                </p>
+                <div className="space-y-2">
+                  {pipelines.map(p => {
+                    const selected =
+                      pipelineSelections.find(s => s.pipelineId === p.id) ??
+                      null;
+                    const stages = stagesByPipeline[p.id] ?? [];
+                    return (
+                      <div
+                        key={p.id}
+                        className="flex items-center gap-2 rounded-xl border bg-background p-3"
+                      >
+                        <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={!!selected}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setPipelineSelections(prev => [
+                                  ...prev,
+                                  {
+                                    pipelineId: p.id,
+                                    stageId: stages[0]?.id ?? 0,
+                                  },
+                                ]);
+                              } else {
+                                setPipelineSelections(prev =>
+                                  prev.filter(s => s.pipelineId !== p.id)
+                                );
+                              }
+                            }}
+                          />
+                          <span
+                            className="h-3 w-3 rounded-full shrink-0"
+                            style={{
+                              backgroundColor: p.color ?? "#3b82f6",
+                            }}
+                          />
+                          <span className="text-sm truncate">{p.name}</span>
+                        </label>
+                        {selected && stages.length > 0 && (
+                          <select
+                            value={selected.stageId}
+                            onChange={e => {
+                              const newStageId = Number(e.target.value);
+                              setPipelineSelections(prev =>
+                                prev.map(s =>
+                                  s.pipelineId === p.id
+                                    ? { ...s, stageId: newStageId }
+                                    : s
+                                )
+                              );
+                            }}
+                            className="rounded border bg-background px-2 py-1 text-sm"
+                          >
+                            {stages.map(s => (
+                              <option key={s.id} value={s.id}>
+                                {s.displayName}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap gap-2">

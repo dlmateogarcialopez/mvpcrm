@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { nanoid } from "nanoid";
 import {
@@ -17,7 +17,6 @@ import {
   automationRules,
   automationRecipients,
   emailCampaigns,
-  metricViews,
   type AppSettings,
   type AutomationRecipient,
   type InsertAutomationRecipient,
@@ -26,8 +25,6 @@ import {
   type Pipeline,
   type PipelineStage,
   type User,
-  type MetricView,
-  type InsertMetricView,
 } from "../drizzle/schema";
 import {
   isStructuredLeadReason,
@@ -2081,17 +2078,35 @@ export async function setLeadStageInPipeline(
 ): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  // INSERT siempre: guarda historial de movimientos en lugar de
-  // una sola fila por lead+pipeline. Las métricas de conversión
-  // (transición, tiempo promedio, velocidad, dropoff) dependen
-  // de este historial para calcular tasas reales.
-  await db.insert(leadPipelineStages).values({
-    leadId,
-    pipelineId,
-    stageId,
-    movedAt: new Date(),
-    movedByUserId: movedByUserId ?? null,
-  });
+  // UPSERT: si ya existe, actualiza; si no, inserta.
+  const existing = await db
+    .select({ id: leadPipelineStages.id })
+    .from(leadPipelineStages)
+    .where(
+      and(
+        eq(leadPipelineStages.leadId, leadId),
+        eq(leadPipelineStages.pipelineId, pipelineId)
+      )
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    await db
+      .update(leadPipelineStages)
+      .set({
+        stageId,
+        movedAt: new Date(),
+        movedByUserId: movedByUserId ?? null,
+      })
+      .where(eq(leadPipelineStages.id, existing[0].id));
+  } else {
+    await db.insert(leadPipelineStages).values({
+      leadId,
+      pipelineId,
+      stageId,
+      movedByUserId: movedByUserId ?? null,
+    });
+  }
 }
 
 export async function listLeadsInStage(stageId: number) {
@@ -2108,21 +2123,6 @@ export async function countLeadsInPipeline(
 ): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-
-  // Si es el pipeline Principal (order=1), todos los leads existen en él
-  // porque PipelinePage agrupa por estadoLead (denormalizado).
-  const [pipe] = await db
-    .select()
-    .from(pipelines)
-    .where(eq(pipelines.id, pipelineId))
-    .limit(1);
-
-  if (pipe && pipe.order === 1) {
-    const all = await db.select({ id: leads.id }).from(leads);
-    return all.length;
-  }
-
-  // Para otros pipelines, contar desde lead_pipeline_stages
   const rows = await db
     .select({ id: leadPipelineStages.id })
     .from(leadPipelineStages)
@@ -2600,21 +2600,7 @@ export async function listLeadPipelineAssignmentsWithDetails(leadId: number) {
       movedAt: leadPipelineStages.movedAt,
     })
     .from(leadPipelineStages)
-    .where(eq(leadPipelineStages.leadId, leadId))
-    .orderBy(asc(leadPipelineStages.movedAt));
-
-  // Con el modelo de historial (INSERT), un lead puede tener múltiples
-  // registros por pipeline. Tomamos solo el último movimiento de cada uno.
-  const latestByPipeline = new Map<
-    number,
-    { stageId: number; movedAt: Date }
-  >();
-  for (const r of rows) {
-    latestByPipeline.set(r.pipelineId, {
-      stageId: r.stageId,
-      movedAt: r.movedAt as any,
-    });
-  }
+    .where(eq(leadPipelineStages.leadId, leadId));
 
   const result: Array<{
     pipelineId: number;
@@ -2628,16 +2614,16 @@ export async function listLeadPipelineAssignmentsWithDetails(leadId: number) {
     movedAt: Date;
   }> = [];
 
-  for (const [pipelineId, entry] of Array.from(latestByPipeline.entries())) {
+  for (const r of rows) {
     const [pipeline] = await dbConn
       .select()
       .from(pipelines)
-      .where(eq(pipelines.id, pipelineId))
+      .where(eq(pipelines.id, r.pipelineId))
       .limit(1);
     const [stage] = await dbConn
       .select()
       .from(pipelineStages)
-      .where(eq(pipelineStages.id, entry.stageId))
+      .where(eq(pipelineStages.id, r.stageId))
       .limit(1);
     if (pipeline && stage) {
       result.push({
@@ -2649,7 +2635,7 @@ export async function listLeadPipelineAssignmentsWithDetails(leadId: number) {
         stageDisplayName: stage.displayName,
         stageColor: stage.color,
         stageKind: stage.kind,
-        movedAt: entry.movedAt as any,
+        movedAt: r.movedAt as any,
       });
     }
   }
@@ -2695,11 +2681,8 @@ export async function listLeadsByPipeline(
       stageId: leadPipelineStages.stageId,
     })
     .from(leadPipelineStages)
-    .where(eq(leadPipelineStages.pipelineId, pipelineId))
-    .orderBy(asc(leadPipelineStages.movedAt));
+    .where(eq(leadPipelineStages.pipelineId, pipelineId));
 
-  // Recorremos en orden cronológico. Para cada lead, el último valor
-  // (más reciente) es el que queda en el Map.
   const stageMap = new Map<number, number>(); // leadId -> stageId
   for (const r of rows) {
     stageMap.set(r.leadId, r.stageId);
@@ -2715,552 +2698,4 @@ export async function listLeadsByPipeline(
     ...enrichLead(row),
     pipelineStageId: stageMap.get(row.id) ?? null,
   }));
-}
-
-/* ============================================================
- * Métricas de conversión para embudos
- * 6 tipos: funnel, stage_transition, by_segment, avg_time,
- *          velocity, dropoff.
- * Todos consultan lead_pipeline_stages y se basan en cohortes
- * por pipeline y período.
- * ============================================================ */
-
-const DEFAULT_METRIC_DAYS = 30;
-
-function parseMetricDates(
-  startDate?: string,
-  endDate?: string
-): { start: Date; end: Date } {
-  const end = endDate ? new Date(endDate) : new Date();
-  const start = startDate
-    ? new Date(startDate)
-    : new Date(end.getTime() - DEFAULT_METRIC_DAYS * 24 * 60 * 60 * 1000);
-  return { start, end };
-}
-
-/** Obtiene los leadIds de la cohorte de entrada (primera fase open del pipeline) en el período. */
-async function getCohortLeadIds(
-  pipelineId: number,
-  start: Date,
-  end: Date
-): Promise<number[]> {
-  const db = await getDb();
-  if (!db) return [];
-
-  // Encontrar todos los leads que tienen asignación en este pipeline
-  // y cuya fecha de ingreso cae dentro del período.
-  // Usamos leads.fechaIngresoLead para que la cohorte no dependa de
-  // la fase actual del lead (un lead sigue en la cohorte aunque cambie de fase).
-  const rows = await db
-    .select({ leadId: leadPipelineStages.leadId })
-    .from(leadPipelineStages)
-    .innerJoin(leads, eq(leads.id, leadPipelineStages.leadId))
-    .where(
-      and(
-        eq(leadPipelineStages.pipelineId, pipelineId),
-        gte(leads.fechaIngresoLead, start.getTime()),
-        lte(leads.fechaIngresoLead, end.getTime())
-      )
-    );
-
-  return Array.from(new Set(rows.map(r => r.leadId)));
-}
-
-/**
- * 1) FUNNEL: De los leads que entraron en el período, cuántos llegaron a cada fase.
- */
-export async function getPipelineFunnel(
-  pipelineId: number,
-  startDate?: string,
-  endDate?: string
-) {
-  const db = await getDb();
-  if (!db) return { stages: [], total: 0 };
-
-  const { start, end } = parseMetricDates(startDate, endDate);
-  const cohortIds = await getCohortLeadIds(pipelineId, start, end);
-  const total = cohortIds.length;
-  if (total === 0) return { stages: [], total: 0 };
-
-  const stages = await db
-    .select()
-    .from(pipelineStages)
-    .where(eq(pipelineStages.pipelineId, pipelineId))
-    .orderBy(asc(pipelineStages.order));
-
-  const result = [];
-  for (const stage of stages) {
-    const count =
-      cohortIds.length === 0
-        ? 0
-        : await (async () => {
-            const rows = await db
-              .select({ leadId: leadPipelineStages.leadId })
-              .from(leadPipelineStages)
-              .where(
-                and(
-                  eq(leadPipelineStages.stageId, stage.id),
-                  inArray(leadPipelineStages.leadId, cohortIds)
-                )
-              );
-            return rows.length;
-          })();
-
-    result.push({
-      stageId: stage.id,
-      stageName: stage.name,
-      stageDisplayName: stage.displayName,
-      stageColor: stage.color,
-      stageKind: stage.kind,
-      stageOrder: stage.order,
-      count,
-      percentage: Math.round((count / total) * 1000) / 10,
-    });
-  }
-
-  return { stages: result, total };
-}
-
-/**
- * 2) STAGE TRANSITION: De leads que estuvieron en fromStage, cuántos llegaron a toStage.
- */
-export async function getStageTransition(
-  pipelineId: number,
-  fromStageId: number,
-  toStageId: number,
-  startDate?: string,
-  endDate?: string
-) {
-  const db = await getDb();
-  if (!db) return { fromCount: 0, toCount: 0, percentage: 0 };
-
-  const { start, end } = parseMetricDates(startDate, endDate);
-
-  const fromRows = await db
-    .select({ leadId: leadPipelineStages.leadId })
-    .from(leadPipelineStages)
-    .where(
-      and(
-        eq(leadPipelineStages.stageId, fromStageId),
-        gte(leadPipelineStages.movedAt, start),
-        lte(leadPipelineStages.movedAt, end)
-      )
-    );
-  const fromLeads = Array.from(new Set(fromRows.map(r => r.leadId)));
-  const fromCount = fromLeads.length;
-  if (fromCount === 0) return { fromCount: 0, toCount: 0, percentage: 0 };
-
-  const toRows = await db
-    .select({ leadId: leadPipelineStages.leadId })
-    .from(leadPipelineStages)
-    .where(
-      and(
-        eq(leadPipelineStages.stageId, toStageId),
-        inArray(leadPipelineStages.leadId, fromLeads)
-      )
-    );
-  const toCount = Array.from(new Set(toRows.map(r => r.leadId))).length;
-
-  return {
-    fromCount,
-    toCount,
-    percentage: Math.round((toCount / fromCount) * 1000) / 10,
-  };
-}
-
-/**
- * 3) BY SEGMENT: Conversión segmentada por un campo del lead.
- */
-export async function getConversionBySegment(
-  pipelineId: number,
-  segmentField: string,
-  startDate?: string,
-  endDate?: string
-) {
-  const db = await getDb();
-  if (!db) return [];
-
-  const { start, end } = parseMetricDates(startDate, endDate);
-  const cohortIds = await getCohortLeadIds(pipelineId, start, end);
-  if (cohortIds.length === 0) return [];
-
-  const wonStage = await db
-    .select()
-    .from(pipelineStages)
-    .where(
-      and(
-        eq(pipelineStages.pipelineId, pipelineId),
-        eq(pipelineStages.kind, "won")
-      )
-    )
-    .limit(1);
-  const wonStageId = wonStage.length > 0 ? wonStage[0].id : null;
-
-  // Obtener todos los leads de la cohorte con sus datos
-  const leadRows = await db
-    .select()
-    .from(leads)
-    .where(inArray(leads.id, cohortIds));
-  const leadMap = new Map(leadRows.map(l => [l.id, l]));
-
-  // Leads ganados de la cohorte
-  let wonLeadIds: number[] = [];
-  if (wonStageId) {
-    const wonRows = await db
-      .select({ leadId: leadPipelineStages.leadId })
-      .from(leadPipelineStages)
-      .where(
-        and(
-          eq(leadPipelineStages.stageId, wonStageId),
-          inArray(leadPipelineStages.leadId, cohortIds)
-        )
-      );
-    wonLeadIds = Array.from(new Set(wonRows.map(r => r.leadId)));
-  }
-  const wonSet = new Set(wonLeadIds);
-
-  // Agrupar por segmento
-  const segments = new Map<string, { total: number; won: number }>();
-  for (const id of cohortIds) {
-    const lead = leadMap.get(id);
-    const value = (lead as any)?.[segmentField] ?? "Sin dato";
-    const key = String(value).trim() || "Sin dato";
-    if (!segments.has(key)) segments.set(key, { total: 0, won: 0 });
-    const s = segments.get(key)!;
-    s.total++;
-    if (wonSet.has(id)) s.won++;
-  }
-
-  return Array.from(segments.entries())
-    .map(([label, data]) => ({
-      label,
-      total: data.total,
-      won: data.won,
-      percentage: Math.round((data.won / data.total) * 1000) / 10,
-    }))
-    .sort((a, b) => b.total - a.total);
-}
-
-/**
- * 4) AVG TIME: Tiempo promedio en cada transición de fase (una fase a la siguiente).
- */
-export async function getAverageTimeInStage(
-  pipelineId: number,
-  startDate?: string,
-  endDate?: string
-) {
-  const db = await getDb();
-  if (!db) return [];
-
-  const { start, end } = parseMetricDates(startDate, endDate);
-  const cohortIds = await getCohortLeadIds(pipelineId, start, end);
-  if (cohortIds.length === 0) return [];
-
-  const stages = await db
-    .select()
-    .from(pipelineStages)
-    .where(eq(pipelineStages.pipelineId, pipelineId))
-    .orderBy(asc(pipelineStages.order));
-
-  const result = [];
-  for (let i = 0; i < stages.length - 1; i++) {
-    const fromStage = stages[i];
-    const toStage = stages[i + 1];
-
-    // Leads que pasaron de fromStage a toStage
-    const transitions = await db
-      .select({
-        leadId: leadPipelineStages.leadId,
-        fromMovedAt: leadPipelineStages.movedAt,
-      })
-      .from(leadPipelineStages)
-      .where(
-        and(
-          eq(leadPipelineStages.stageId, fromStage.id),
-          inArray(leadPipelineStages.leadId, cohortIds)
-        )
-      );
-
-    const leadIds = transitions.map(t => t.leadId);
-    if (leadIds.length === 0) {
-      result.push({
-        fromStage: fromStage.displayName,
-        toStage: toStage.displayName,
-        avgDays: null,
-        count: 0,
-      });
-      continue;
-    }
-
-    const toMoves = await db
-      .select({
-        leadId: leadPipelineStages.leadId,
-        movedAt: leadPipelineStages.movedAt,
-      })
-      .from(leadPipelineStages)
-      .where(
-        and(
-          eq(leadPipelineStages.stageId, toStage.id),
-          inArray(leadPipelineStages.leadId, leadIds)
-        )
-      );
-    const toMap = new Map(toMoves.map(r => [r.leadId, r.movedAt]));
-
-    let totalDays = 0;
-    let count = 0;
-    for (const t of transitions) {
-      const toDate = toMap.get(t.leadId);
-      if (toDate) {
-        const fromMs =
-          t.fromMovedAt instanceof Date
-            ? t.fromMovedAt.getTime()
-            : new Date(t.fromMovedAt as any).getTime();
-        const toMs =
-          toDate instanceof Date
-            ? toDate.getTime()
-            : new Date(toDate as any).getTime();
-        totalDays += (toMs - fromMs) / (1000 * 60 * 60 * 24);
-        count++;
-      }
-    }
-
-    result.push({
-      fromStage: fromStage.displayName,
-      toStage: toStage.displayName,
-      avgDays: count > 0 ? Math.round((totalDays / count) * 10) / 10 : null,
-      count,
-    });
-  }
-
-  return result;
-}
-
-/**
- * 5) VELOCITY: Tiempo total desde entrada hasta cierre (ganado/perdido).
- */
-export async function getPipelineVelocity(
-  pipelineId: number,
-  startDate?: string,
-  endDate?: string
-) {
-  const db = await getDb();
-  if (!db)
-    return {
-      min: null,
-      max: null,
-      avg: null,
-      median: null,
-      distribution: [],
-      count: 0,
-    };
-
-  const { start, end } = parseMetricDates(startDate, endDate);
-  const cohortIds = await getCohortLeadIds(pipelineId, start, end);
-  if (cohortIds.length === 0)
-    return {
-      min: null,
-      max: null,
-      avg: null,
-      median: null,
-      distribution: [],
-      count: 0,
-    };
-
-  // Fases terminales (won, lost)
-  const terminal = await db
-    .select()
-    .from(pipelineStages)
-    .where(
-      and(
-        eq(pipelineStages.pipelineId, pipelineId),
-        eq(pipelineStages.isActive, true),
-        inArray(pipelineStages.kind, ["won", "lost"])
-      )
-    );
-  const terminalIds = terminal.map(s => s.id);
-  if (terminalIds.length === 0)
-    return {
-      min: null,
-      max: null,
-      avg: null,
-      median: null,
-      distribution: [],
-      count: 0,
-    };
-
-  const days: number[] = [];
-  for (const leadId of cohortIds) {
-    // Fecha de entrada (primera fase)
-    const first = await db
-      .select({ movedAt: leadPipelineStages.movedAt })
-      .from(leadPipelineStages)
-      .where(eq(leadPipelineStages.leadId, leadId))
-      .orderBy(asc(leadPipelineStages.movedAt))
-      .limit(1);
-    if (first.length === 0) continue;
-
-    // Fecha de cierre (última fase terminal)
-    const last = await db
-      .select({ movedAt: leadPipelineStages.movedAt })
-      .from(leadPipelineStages)
-      .where(
-        and(
-          eq(leadPipelineStages.leadId, leadId),
-          inArray(leadPipelineStages.stageId, terminalIds)
-        )
-      )
-      .orderBy(desc(leadPipelineStages.movedAt))
-      .limit(1);
-    if (last.length === 0) continue;
-
-    const fromMs =
-      first[0].movedAt instanceof Date
-        ? first[0].movedAt.getTime()
-        : new Date(first[0].movedAt as any).getTime();
-    const toMs =
-      last[0].movedAt instanceof Date
-        ? last[0].movedAt.getTime()
-        : new Date(last[0].movedAt as any).getTime();
-    days.push((toMs - fromMs) / (1000 * 60 * 60 * 24));
-  }
-
-  if (days.length === 0)
-    return {
-      min: null,
-      max: null,
-      avg: null,
-      median: null,
-      distribution: [],
-      count: 0,
-    };
-
-  const sorted = [...days].sort((a, b) => a - b);
-  const median =
-    sorted.length % 2 === 0
-      ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
-      : sorted[Math.floor(sorted.length / 2)];
-
-  // Distribución por buckets: 0-7, 8-14, 15-30, 31+
-  const buckets = [
-    { label: "0-7 días", min: 0, max: 7, count: 0, pct: 0 },
-    { label: "8-14 días", min: 8, max: 14, count: 0, pct: 0 },
-    { label: "15-30 días", min: 15, max: 30, count: 0, pct: 0 },
-    { label: "31+ días", min: 31, max: Infinity, count: 0, pct: 0 },
-  ];
-  for (const d of days) {
-    for (const b of buckets) {
-      if (d >= b.min && d <= b.max) {
-        b.count++;
-        break;
-      }
-    }
-  }
-  for (const b of buckets) b.pct = Math.round((b.count / days.length) * 100);
-
-  return {
-    min: Math.round(sorted[0] * 10) / 10,
-    max: Math.round(sorted[sorted.length - 1] * 10) / 10,
-    avg: Math.round((days.reduce((a, b) => a + b, 0) / days.length) * 10) / 10,
-    median: Math.round(median * 10) / 10,
-    distribution: buckets,
-    count: days.length,
-  };
-}
-
-/**
- * 6) DROPOFF: Leads que no avanzaron de cada fase a la siguiente.
- */
-export async function getDropOff(
-  pipelineId: number,
-  startDate?: string,
-  endDate?: string
-) {
-  const db = await getDb();
-  if (!db) return [];
-
-  const { start, end } = parseMetricDates(startDate, endDate);
-  const cohortIds = await getCohortLeadIds(pipelineId, start, end);
-  if (cohortIds.length === 0) return [];
-
-  const stages = await db
-    .select()
-    .from(pipelineStages)
-    .where(eq(pipelineStages.pipelineId, pipelineId))
-    .orderBy(asc(pipelineStages.order));
-
-  const result = [];
-  for (let i = 0; i < stages.length - 1; i++) {
-    const fromStage = stages[i];
-    const toStage = stages[i + 1];
-
-    const inFrom = await db
-      .select({ leadId: leadPipelineStages.leadId })
-      .from(leadPipelineStages)
-      .where(
-        and(
-          eq(leadPipelineStages.stageId, fromStage.id),
-          inArray(leadPipelineStages.leadId, cohortIds)
-        )
-      );
-    const fromIds = new Set(inFrom.map(r => r.leadId));
-    if (fromIds.size === 0) continue;
-
-    const inTo = await db
-      .select({ leadId: leadPipelineStages.leadId })
-      .from(leadPipelineStages)
-      .where(
-        and(
-          eq(leadPipelineStages.stageId, toStage.id),
-          inArray(leadPipelineStages.leadId, Array.from(fromIds))
-        )
-      );
-    const toIds = new Set(inTo.map(r => r.leadId));
-    const dropped = fromIds.size - toIds.size;
-
-    result.push({
-      fromStage: fromStage.displayName,
-      toStage: toStage.displayName,
-      entered: fromIds.size,
-      advanced: toIds.size,
-      dropped,
-      dropRate: Math.round((dropped / fromIds.size) * 1000) / 10,
-    });
-  }
-
-  return result;
-}
-
-/* ============================================================
- * CRUD de metric_views (vistas guardadas de métricas)
- * ============================================================ */
-
-export async function listMetricViewsForUser(userId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  return db
-    .select()
-    .from(metricViews)
-    .where(eq(metricViews.userId, userId))
-    .orderBy(desc(metricViews.updatedAt));
-}
-
-export async function createMetricView(
-  data: Omit<InsertMetricView, "id" | "createdAt" | "updatedAt">
-) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const [row] = await db.insert(metricViews).values(data).$returningId();
-  if (!row) throw new Error("No fue posible guardar la vista.");
-  const [saved] = await db
-    .select()
-    .from(metricViews)
-    .where(eq(metricViews.id, row.id))
-    .limit(1);
-  return saved;
-}
-
-export async function deleteMetricView(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.delete(metricViews).where(eq(metricViews.id, id));
 }

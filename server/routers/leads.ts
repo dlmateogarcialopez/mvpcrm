@@ -86,7 +86,18 @@ export const leadsRouter = router({
   }),
 
   create: protectedProcedure
-    .input(leadCreateSchema)
+    .input(
+      leadCreateSchema.safeExtend({
+        pipelineAssignments: z
+          .array(
+            z.object({
+              pipelineId: z.number(),
+              stageId: z.number(),
+            })
+          )
+          .optional(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       const currentUser = toCurrentUser(ctx.user);
       const lead = await createLead(input, currentUser);
@@ -96,6 +107,38 @@ export const leadsRouter = router({
           code: "INTERNAL_SERVER_ERROR",
           message: "No fue posible crear el lead.",
         });
+      }
+
+      const numericLeadId =
+        typeof lead.id === "string" ? parseInt(lead.id, 10) : lead.id;
+
+      if (input.pipelineAssignments && input.pipelineAssignments.length > 0) {
+        // Asignar a los pipelines seleccionados por el usuario
+        for (const assignment of input.pipelineAssignments) {
+          await setLeadStageInPipeline(
+            numericLeadId,
+            assignment.pipelineId,
+            assignment.stageId,
+            ctx.user.id
+          );
+        }
+      } else {
+        // Si no seleccionó pipelines, asignar al Principal por defecto
+        const defaultPipeline = await getDefaultPipeline();
+        if (defaultPipeline) {
+          const firstStage = await getPipelineStageByName(
+            defaultPipeline.id,
+            lead.estadoLead ?? "nuevo"
+          );
+          if (firstStage) {
+            await setLeadStageInPipeline(
+              numericLeadId,
+              defaultPipeline.id,
+              firstStage.id,
+              ctx.user.id
+            );
+          }
+        }
       }
 
       const automation = await runLeadAutomation(lead, ctx.user.id);

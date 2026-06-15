@@ -124,27 +124,24 @@ export const pipelineStages = mysqlTable("pipeline_stages", {
  * Relación N:1 entre leads y fases por pipeline.
  * Un lead puede estar en UNA fase por cada pipeline.
  */
-export const leadPipelineStages = mysqlTable("lead_pipeline_stages", {
-  id: int("id").primaryKey().autoincrement(),
-  leadId: int("leadId").notNull(),
-  pipelineId: int("pipelineId").notNull(),
-  stageId: int("stageId").notNull(),
-  movedAt: timestamp("movedAt").defaultNow().notNull(),
-  movedByUserId: int("movedByUserId"),
-});
-
-/**
- * Vistas guardadas de métricas de conversión.
- * Cada usuario puede guardar configuraciones de métricas para acceso rápido.
- */
-export const metricViews = mysqlTable("metric_views", {
-  id: int("id").primaryKey().autoincrement(),
-  userId: int("userId").notNull(),
-  name: varchar("name", { length: 100 }).notNull(),
-  config: text("config").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+export const leadPipelineStages = mysqlTable(
+  "lead_pipeline_stages",
+  {
+    id: int("id").primaryKey().autoincrement(),
+    leadId: int("leadId").notNull(),
+    pipelineId: int("pipelineId").notNull(),
+    stageId: int("stageId").notNull(),
+    movedAt: timestamp("movedAt").defaultNow().notNull(),
+    movedByUserId: int("movedByUserId"),
+  },
+  table => ({
+    uniqLeadPipeline: {
+      name: "uniq_lead_pipeline",
+      columns: [table.leadId, table.pipelineId],
+      isUnique: true,
+    } as any,
+  })
+);
 
 /**
  * Tabla para etiquetas personalizadas
@@ -381,8 +378,6 @@ export type Pipeline = typeof pipelines.$inferSelect;
 export type InsertPipeline = typeof pipelines.$inferInsert;
 export type LeadPipelineStage = typeof leadPipelineStages.$inferSelect;
 export type InsertLeadPipelineStage = typeof leadPipelineStages.$inferInsert;
-export type MetricView = typeof metricViews.$inferSelect;
-export type InsertMetricView = typeof metricViews.$inferInsert;
 export type CustomLabel = typeof customLabels.$inferSelect;
 export type CustomChannel = typeof customChannels.$inferSelect;
 export type AutomationRule = typeof automationRules.$inferSelect;

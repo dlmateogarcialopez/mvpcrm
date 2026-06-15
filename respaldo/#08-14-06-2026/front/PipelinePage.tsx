@@ -59,8 +59,6 @@ interface PipelineStage {
   order: number | null;
   isActive: boolean | null;
   kind: "open" | "won" | "lost" | "paused";
-  createdAt: Date;
-  updatedAt: Date;
 }
 
 interface LeadInPipeline {
@@ -423,13 +421,6 @@ export function PipelinePage() {
       utils.leads.list.invalidate();
       utils.pipeline.leadCounts.invalidate();
       utils.pipelines.listWithStats.invalidate();
-      if (activePipelineId) {
-        utils.pipelines.metric.invalidate({
-          pipelineId: activePipelineId,
-          metricType: "funnel" as const,
-          params: undefined,
-        });
-      }
       toast.success("Estado actualizado correctamente");
     },
     onError: error =>
@@ -439,14 +430,6 @@ export function PipelinePage() {
   const moveStageMutation = trpc.leads.moveStageInPipeline.useMutation({
     onSuccess: () => {
       utils.leads.list.invalidate();
-      if (activePipelineId) {
-        utils.leads.listByPipeline.invalidate({ pipelineId: activePipelineId });
-        utils.pipelines.metric.invalidate({
-          pipelineId: activePipelineId,
-          metricType: "funnel" as const,
-          params: undefined,
-        });
-      }
       utils.pipeline.leadCounts.invalidate();
       utils.pipelines.listWithStats.invalidate();
       toast.success("Estado actualizado correctamente");
@@ -615,19 +598,7 @@ export function PipelinePage() {
       const newIndex = stages.findIndex(s => s.id === over.id);
       if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
       const newOrder = arrayMove(stages, oldIndex, newIndex);
-      const orderedIds = newOrder.map(s => s.id);
-
-      // Actualización optimista: reflejar el nuevo orden inmediatamente
-      // para evitar que @dnd-kit haga snap-back visual.
-      if (activePipelineId) {
-        utils.pipeline.listActive.setData(
-          { pipelineId: activePipelineId },
-          newOrder
-        );
-        utils.pipeline.list.setData({ pipelineId: activePipelineId }, newOrder);
-      }
-
-      reorderMutation.mutate({ orderedIds });
+      reorderMutation.mutate({ orderedIds: newOrder.map(s => s.id) });
       return;
     }
 
@@ -864,13 +835,6 @@ export function PipelinePage() {
         </DragOverlay>
       </DndContext>
 
-      {/* Funnel rápido del embudo activo */}
-      <PipelineFunnelSection
-        pipelineId={activePipelineId}
-        pipelineName={activePipeline?.name ?? ""}
-        pipelineColor={activePipeline?.color ?? "#3b82f6"}
-      />
-
       <div className="rounded-2xl border bg-muted/30 p-4 text-sm text-muted-foreground">
         💡 <strong>Consejo:</strong> Arrastra el ícono{" "}
         <GripVertical className="inline h-3 w-3" /> de la cabecera de una fase
@@ -879,131 +843,6 @@ export function PipelinePage() {
         <MoreVertical className="inline h-3 w-3" /> de cada fase para renombrar,
         activar/desactivar o eliminar.
       </div>
-    </div>
-  );
-}
-
-function PipelineFunnelSection({
-  pipelineId,
-  pipelineColor,
-}: {
-  pipelineId: number | null;
-  pipelineName?: string;
-  pipelineColor: string;
-}) {
-  const [, setLocation] = useLocation();
-  const funnelQuery = trpc.pipelines.metric.useQuery(
-    pipelineId
-      ? { pipelineId, metricType: "funnel" as const, params: undefined }
-      : (undefined as unknown as {
-          pipelineId: number;
-          metricType: "funnel";
-          params: undefined;
-        }),
-    { refetchOnWindowFocus: false, enabled: !!pipelineId }
-  );
-
-  if (!pipelineId) return null;
-  if (funnelQuery.isLoading) return null;
-
-  const data = funnelQuery.data as
-    | {
-        stages: Array<{
-          stageId: number;
-          stageDisplayName: string;
-          stageColor: string | null;
-          stageKind: string;
-          count: number;
-          percentage: number;
-        }>;
-        total: number;
-      }
-    | undefined;
-
-  if (!data || data.total === 0) return null;
-
-  return (
-    <div className="rounded-2xl border bg-card p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold">Conversión del embudo (funnel rápido)</h3>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setLocation("/embudos/metricas")}
-        >
-          Ver todas las métricas
-        </Button>
-      </div>
-      <div className="space-y-2">
-        {data.stages.map(s => (
-          <div key={s.stageId} className="space-y-1">
-            <div className="flex items-center justify-between text-xs">
-              <span className="flex items-center gap-1">
-                {s.stageDisplayName}
-                {s.stageKind === "won" && " ✅"}
-                {s.stageKind === "lost" && " ❌"}
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {s.count} de {data.total}
-                </span>
-                <span className="font-semibold tabular-nums min-w-[3ch] text-right">
-                  {s.percentage}%
-                </span>
-              </div>
-            </div>
-            <div className="flex-1 bg-muted rounded-full h-3 overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{
-                  width: `${Math.max(s.percentage, s.count > 0 ? 2 : 0)}%`,
-                  backgroundColor: s.stageColor ?? pipelineColor,
-                }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-      {(() => {
-        const won = data.stages.find(s => s.stageKind === "won");
-        const lost = data.stages.find(s => s.stageKind === "lost");
-        const paused = data.stages.find(s => s.stageKind === "paused");
-        const openStages = data.stages.filter(
-          s => s.stageKind === "open" && s.count === 0
-        );
-        return (
-          <p className="text-xs bg-muted/30 rounded-lg p-3 leading-relaxed">
-            💡 De los <strong>{data.total}</strong> leads que entraron este mes
-            al embudo
-            {won ? (
-              <>
-                , <strong>{won.count}</strong> se ganaron (
-                <strong>{won.percentage}%</strong>)
-              </>
-            ) : null}
-            {lost ? (
-              <>
-                , <strong>{lost.count}</strong> se perdieron (
-                <strong>{lost.percentage}%</strong>)
-              </>
-            ) : null}
-            {paused && paused.count > 0 ? (
-              <>
-                , <strong>{paused.count}</strong> están en pausa (
-                <strong>{paused.percentage}%</strong>)
-              </>
-            ) : null}
-            .
-            {openStages.length > 0 ? (
-              <>
-                {" "}
-                Las fases con 0% indican oportunidades de mejora en la
-                conversión.
-              </>
-            ) : null}
-          </p>
-        );
-      })()}
     </div>
   );
 }
