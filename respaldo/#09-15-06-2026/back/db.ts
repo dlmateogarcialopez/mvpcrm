@@ -3264,33 +3264,3 @@ export async function deleteMetricView(id: number) {
   if (!db) throw new Error("Database not available");
   await db.delete(metricViews).where(eq(metricViews.id, id));
 }
-
-/**
- * Busca un lead por teléfono o correo. Usado para detección de duplicados
- * en la importación de Excel.
- */
-export async function findLeadByPhoneOrEmail(
-  telefono: string | null,
-  correo: string | null
-): Promise<{ id: number; publicId: string } | null> {
-  const db = await getDb();
-  if (!db) return null;
-
-  if (telefono) {
-    const found = await db
-      .select({ id: leads.id, publicId: leads.publicId })
-      .from(leads)
-      .where(eq(leads.telefono, telefono))
-      .limit(1);
-    if (found.length > 0) return found[0];
-  }
-  if (correo) {
-    const found = await db
-      .select({ id: leads.id, publicId: leads.publicId })
-      .from(leads)
-      .where(eq(leads.correo, correo))
-      .limit(1);
-    if (found.length > 0) return found[0];
-  }
-  return null;
-}

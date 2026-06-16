@@ -1,7 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as XLSX from "xlsx";
-import * as db from "../db";
 import {
   addLeadActivity,
   createLead,
@@ -21,11 +20,6 @@ import {
   updateLeadStatusField,
   type CurrentUser,
 } from "../db";
-import {
-  validateLeadImport,
-  LEAD_IMPORT_FIELDS,
-  type ValidationResult,
-} from "../services/leadImport";
 import {
   leadActivityCreateSchema,
   leadCreateSchema,
@@ -86,120 +80,6 @@ export const leadsRouter = router({
       base64: workbook.toString("base64"),
     };
   }),
-
-  /**
-   * Valida un archivo Excel de importación. No toca la BD.
-   * Devuelve el mapeo de columnas, faltantes, desconocidas y filas con su estado.
-   */
-  validateExcelImport: protectedProcedure
-    .input(
-      z.object({
-        base64: z.string(),
-        manualMapping: z.record(z.string(), z.string()).optional(),
-      })
-    )
-    .mutation(async ({ input }) => {
-      const buffer = Buffer.from(input.base64, "base64");
-      const result: ValidationResult = validateLeadImport(
-        buffer,
-        input.manualMapping
-      );
-      return {
-        ...result,
-        availableFields: Object.entries(LEAD_IMPORT_FIELDS).map(
-          ([key, def]) => ({
-            key,
-            label: def.label,
-            type: def.type,
-          })
-        ),
-      };
-    }),
-
-  /**
-   * Ejecuta la importación real de un archivo Excel validado.
-   * Crea leads nuevos y, opcionalmente, actualiza duplicados.
-   */
-  executeExcelImport: protectedProcedure
-    .input(
-      z.object({
-        base64: z.string(),
-        manualMapping: z.record(z.string(), z.string()).optional(),
-        duplicateAction: z.enum(["update", "create", "skip"]).default("skip"),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const buffer = Buffer.from(input.base64, "base64");
-      const validation = validateLeadImport(buffer, input.manualMapping);
-
-      const currentUser = toCurrentUser(ctx.user);
-      const numericUserId =
-        typeof ctx.user.id === "string"
-          ? parseInt(ctx.user.id, 10)
-          : ctx.user.id;
-
-      let created = 0;
-      let updated = 0;
-      let skipped = 0;
-      const errors: Array<{ rowIndex: number; reason: string }> = [];
-
-      for (const row of validation.rows) {
-        if (row.status === "error") {
-          skipped++;
-          continue;
-        }
-
-        // Convertir ParsedCell a objeto plano
-        const leadData: Record<string, any> = {};
-        for (const [field, cell] of Object.entries(row.data)) {
-          leadData[field] = cell.raw;
-        }
-
-        // Verificar duplicado por teléfono o correo
-        const existingLead = await db.findLeadByPhoneOrEmail(
-          leadData.telefono ? String(leadData.telefono) : null,
-          leadData.correo ? String(leadData.correo) : null
-        );
-
-        if (existingLead) {
-          if (input.duplicateAction === "skip") {
-            skipped++;
-            continue;
-          }
-          if (input.duplicateAction === "update") {
-            try {
-              await db.updateLead(
-                {
-                  publicId: existingLead.publicId,
-                  ...leadData,
-                } as any,
-                currentUser
-              );
-              updated++;
-            } catch (e: any) {
-              errors.push({ rowIndex: row.index, reason: e.message });
-            }
-            continue;
-          }
-        }
-
-        try {
-          await createLead(leadData as any, currentUser);
-          created++;
-        } catch (e: any) {
-          errors.push({ rowIndex: row.index, reason: e.message });
-        }
-      }
-
-      return {
-        created,
-        updated,
-        skipped,
-        errors,
-        total: validation.rows.length,
-        duplicateAction: input.duplicateAction,
-      };
-    }),
 
   byId: protectedProcedure.input(leadIdSchema).query(async ({ ctx, input }) => {
     return loadLeadOrThrow(input.publicId, toCurrentUser(ctx.user));

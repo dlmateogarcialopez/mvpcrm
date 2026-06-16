@@ -24,7 +24,6 @@ import { useIsMobile } from "@/hooks/useMobile";
 import {
   BarChart3,
   CalendarClock,
-  FileSpreadsheet,
   LogOut,
   PanelLeft,
   Settings2,
@@ -76,12 +75,6 @@ const menuItems = [
     path: "/automatizaciones/destinatarios",
     description: "Libreta de notificaciones",
     superadminOnly: true,
-  },
-  {
-    icon: FileSpreadsheet,
-    label: "Importar / Exportar",
-    path: "/importar-exportar",
-    description: "Carga y descarga de leads en Excel",
   },
   {
     icon: Mail,

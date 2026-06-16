@@ -4,8 +4,8 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Clock3,
   Download,
-  FileSpreadsheet,
   Filter,
   Loader2,
   Mail,
@@ -17,10 +17,8 @@ import {
   Sparkles,
   Upload,
   UserRound,
-  Clock3,
   X,
 } from "lucide-react";
-import { useLocation } from "wouter";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import {
@@ -348,7 +346,6 @@ function downloadBase64File(
 
 export default function LeadsPage() {
   const utils = trpc.useUtils();
-  const [, setLocation] = useLocation();
   const settingsQuery = trpc.settings.get.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
@@ -656,6 +653,39 @@ export default function LeadsPage() {
         `Error al generar plantilla: ${err instanceof Error ? err.message : "error"}`
       );
     }
+  };
+
+  const importSpreadsheetMutation = trpc.leads.importSpreadsheet.useMutation({
+    onSuccess: async result => {
+      toast.success(
+        `¡Importación exitosa! Se cargaron ${result.importedCount} oportunidades.`
+      );
+      await Promise.all([
+        utils.leads.dashboard.invalidate(),
+        utils.leads.list.invalidate(),
+      ]);
+    },
+    onError: error => toast.error(`Error al importar: ${error.message}`),
+  });
+
+  const handleExcelImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = e => {
+      const data = e.target?.result as string;
+      const base64 = data.split(",")[1];
+      toast.loading("Importando oportunidades desde Excel...");
+      importSpreadsheetMutation.mutate(
+        { base64 },
+        {
+          onSettled: () => toast.dismiss(),
+        }
+      );
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
   };
 
   const pricingPreview = useMemo(() => {
@@ -1016,10 +1046,48 @@ export default function LeadsPage() {
             <div className="flex flex-wrap items-center justify-end gap-3">
               <button
                 type="button"
-                onClick={() => setLocation("/importar-exportar")}
+                onClick={handleDownloadTemplate}
                 className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition hover:bg-muted"
               >
-                <FileSpreadsheet className="h-4 w-4" /> Importar / Exportar
+                <Download className="h-4 w-4" />
+                Descargar Plantilla
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  document.getElementById("excel-import-input")?.click()
+                }
+                disabled={importSpreadsheetMutation.isPending}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {importSpreadsheetMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+                Importar Excel
+              </button>
+              <input
+                id="excel-import-input"
+                type="file"
+                accept=".xlsx, .xls"
+                onChange={handleExcelImport}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => exportSpreadsheetMutation.mutate()}
+                disabled={
+                  exportSpreadsheetMutation.isPending || leadRows.length === 0
+                }
+                className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {exportSpreadsheetMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                Exportar Excel
               </button>
               <button
                 type="button"
