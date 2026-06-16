@@ -39,6 +39,7 @@ const TRIGGERS = [
     label: "Cuando faltan N días para vencer la gestión",
   },
   { value: "daily_schedule", label: "Diariamente a las..." },
+  { value: "after_visit", label: "Después de la fecha de visita" },
   {
     value: "opportunity_won",
     label: "Cuando un lead pasa a GANADO",
@@ -389,6 +390,24 @@ export function AutomationsPage() {
                     }
                   />
                 )}
+
+                {editingTrigger === "after_visit" &&
+                  editingAction === "send_email" && (
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Mensaje del email
+                      </label>
+                      <textarea
+                        value={editingActionData}
+                        onChange={e => setEditingActionData(e.target.value)}
+                        placeholder={`Hola,\n\nEsperamos que tu visita haya sido de tu agrado...`}
+                        className="min-h-28 rounded-xl border bg-background px-3 py-3 text-sm outline-none transition focus:border-primary w-full resize-y"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Si lo dejas vacío, se enviará un mensaje por defecto.
+                      </p>
+                    </div>
+                  )}
 
                 <div className="flex gap-2">
                   <Button size="sm" onClick={handleEditSave} className="flex-1">

@@ -143,6 +143,11 @@ export function shouldTriggerRule(
       return lead.estadoLead === "perdido";
     case "opportunity_proposal_sent":
       return lead.estadoLead === "propuesta";
+    case "after_visit":
+      if (typeof lead.isClosed === "boolean" && lead.isClosed) return false;
+      if (["ganado", "perdido"].includes(lead.estadoLead)) return false;
+      if (!lead.fechaVisita) return false;
+      return lead.fechaVisita < Date.now();
     default:
       return false;
   }
@@ -311,8 +316,15 @@ export async function executeRuleAction(rule: any, lead: Lead, userId: number) {
         };
       }
       const subject =
-        payload.subject || `Alerta: gestión vencida — ${lead.nombreCliente}`;
-      const body = payload.body || buildDefaultOverdueEmailBody(lead);
+        payload.subject ||
+        (rule.trigger === "after_visit"
+          ? `Seguimiento post-visita: ${lead.nombreCliente}`
+          : `Alerta: gestión vencida — ${lead.nombreCliente}`);
+      const body =
+        payload.body ||
+        (rule.trigger === "after_visit"
+          ? buildDefaultPostVisitEmailBody(lead)
+          : buildDefaultOverdueEmailBody(lead));
       const ok = await sendMail({
         to: recipient,
         subject,
@@ -684,6 +696,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   opportunity_won: "Oportunidad ganada",
   opportunity_lost: "Oportunidad perdida",
   opportunity_proposal_sent: "Propuesta enviada",
+  after_visit: "Post-visita",
   daily_schedule: "Programación diaria",
 };
 
@@ -770,5 +783,29 @@ function buildStateChangeEmailBody(lead: Lead, recipientName: string): string {
     `Agente responsable: ${lead.agenteResponsable || "Sin asignar"}.`,
     ``,
     `Este mensaje fue generado automáticamente por una regla de automatización.`,
+  ].join("\n");
+}
+
+/**
+ * Cuerpo de email por defecto para el trigger after_visit.
+ * Se usa cuando el usuario no escribe un mensaje personalizado en actionData.
+ */
+function buildDefaultPostVisitEmailBody(lead: Lead): string {
+  const fechaVisita = lead.fechaVisita
+    ? new Date(
+        typeof lead.fechaVisita === "number"
+          ? lead.fechaVisita
+          : (lead.fechaVisita as any)
+      ).toLocaleString("es-CO")
+    : "Sin fecha";
+  return [
+    `Hola ${lead.nombreCliente},`,
+    ``,
+    `Esperamos que tu visita del ${fechaVisita} haya sido de tu agrado.`,
+    ``,
+    `Quedamos atentos a cualquier consulta o necesidad adicional.`,
+    ``,
+    `Saludos,`,
+    `Equipo de Ventas`,
   ].join("\n");
 }
