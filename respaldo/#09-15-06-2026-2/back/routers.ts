@@ -9,7 +9,6 @@ import { settingsRouter } from "./routers/settings";
 import { automationRouter } from "./routers/automation";
 import { pipelineRouter } from "./routers/pipeline";
 import { pipelinesRouter } from "./routers/pipelines";
-import { permissionsRouter } from "./routers/permissions";
 import { hashPassword, verifyPassword } from "./_core/password";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
@@ -108,7 +107,6 @@ export const appRouter = router({
           email: z.string().email(),
           password: z.string().min(6),
           role: z.enum(appRoleValues),
-          permissionIds: z.array(z.number()).optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -136,25 +134,14 @@ export const appRouter = router({
         }
 
         const pwdHash = hashPassword(input.password);
-
-        if (input.role === "custom" && input.permissionIds) {
-          await db.createCustomUser({
-            name: input.name.trim(),
-            email: input.email.toLowerCase().trim(),
-            passwordHash: pwdHash,
-            role: "custom",
-            permissionIds: input.permissionIds,
-          });
-        } else {
-          await db.upsertUser({
-            openId: input.email.toLowerCase().trim(),
-            name: input.name.trim(),
-            email: input.email.toLowerCase().trim(),
-            passwordHash: pwdHash,
-            role: input.role,
-            lastSignedIn: new Date(),
-          });
-        }
+        await db.upsertUser({
+          openId: input.email.toLowerCase().trim(),
+          name: input.name.trim(),
+          email: input.email.toLowerCase().trim(),
+          passwordHash: pwdHash,
+          role: input.role,
+          lastSignedIn: new Date(),
+        });
 
         return { success: true };
       }),
@@ -164,7 +151,6 @@ export const appRouter = router({
   automation: automationRouter,
   pipeline: pipelineRouter,
   pipelines: pipelinesRouter,
-  permissions: permissionsRouter,
 });
 
 export type AppRouter = typeof appRouter;

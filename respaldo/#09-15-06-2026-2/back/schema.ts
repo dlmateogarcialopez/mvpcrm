@@ -134,29 +134,6 @@ export const leadPipelineStages = mysqlTable("lead_pipeline_stages", {
 });
 
 /**
- * Tabla de permisos del sistema. Cada permiso es una acción atómica
- * que puede asignarse a usuarios con rol "custom".
- */
-export const permissions = mysqlTable("permissions", {
-  id: int("id").primaryKey().autoincrement(),
-  key: varchar("key", { length: 64 }).notNull().unique(),
-  name: varchar("name", { length: 100 }).notNull(),
-  groupName: varchar("groupName", { length: 50 }).notNull(),
-  description: varchar("description", { length: 255 }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
-
-/**
- * Asignación de permisos a usuarios con rol "custom".
- */
-export const userPermissions = mysqlTable("user_permissions", {
-  id: int("id").primaryKey().autoincrement(),
-  userId: int("userId").notNull(),
-  permissionId: int("permissionId").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
-
-/**
  * Vistas guardadas de métricas de conversión.
  * Cada usuario puede guardar configuraciones de métricas para acceso rápido.
  */
@@ -413,7 +390,3 @@ export type EmailCampaign = typeof emailCampaigns.$inferSelect;
 export type AutomationRecipient = typeof automationRecipients.$inferSelect;
 export type InsertAutomationRecipient =
   typeof automationRecipients.$inferInsert;
-export type Permission = typeof permissions.$inferSelect;
-export type InsertPermission = typeof permissions.$inferInsert;
-export type UserPermission = typeof userPermissions.$inferSelect;
-export type InsertUserPermission = typeof userPermissions.$inferInsert;

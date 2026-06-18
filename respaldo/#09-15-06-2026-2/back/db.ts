@@ -18,8 +18,6 @@ import {
   automationRecipients,
   emailCampaigns,
   metricViews,
-  permissions,
-  userPermissions,
   type AppSettings,
   type AutomationRecipient,
   type InsertAutomationRecipient,
@@ -30,9 +28,6 @@ import {
   type User,
   type MetricView,
   type InsertMetricView,
-  type Permission,
-  type InsertPermission,
-  type UserPermission,
 } from "../drizzle/schema";
 import {
   isStructuredLeadReason,
@@ -3298,79 +3293,4 @@ export async function findLeadByPhoneOrEmail(
     if (found.length > 0) return found[0];
   }
   return null;
-}
-
-/* ============================================================
- * Permisos de usuarios (rol "custom")
- * ============================================================ */
-
-export async function listPermissions(): Promise<Permission[]> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  return db
-    .select()
-    .from(permissions)
-    .orderBy(asc(permissions.groupName), asc(permissions.key));
-}
-
-export async function listUserPermissions(userId: number): Promise<string[]> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const rows = await db
-    .select({ key: permissions.key })
-    .from(userPermissions)
-    .innerJoin(permissions, eq(permissions.id, userPermissions.permissionId))
-    .where(eq(userPermissions.userId, userId));
-  return rows.map(r => r.key);
-}
-
-export async function setUserPermissions(
-  userId: number,
-  permissionIds: number[]
-): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.delete(userPermissions).where(eq(userPermissions.userId, userId));
-  if (permissionIds.length > 0) {
-    await db
-      .insert(userPermissions)
-      .values(permissionIds.map(permissionId => ({ userId, permissionId })));
-  }
-}
-
-/**
- * Crea un usuario con rol "custom" y sus permisos.
- */
-export async function createCustomUser(data: {
-  openId?: string;
-  name: string;
-  email: string;
-  passwordHash: string;
-  role: string;
-  permissionIds: number[];
-}): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  const openId =
-    data.openId ??
-    `custom_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-  await db.insert(users).values({
-    openId,
-    name: data.name,
-    email: data.email,
-    passwordHash: data.passwordHash,
-    role: data.role as any,
-  });
-
-  const [inserted] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.openId, openId))
-    .limit(1);
-
-  if (inserted && data.permissionIds.length > 0) {
-    await setUserPermissions(inserted.id, data.permissionIds);
-  }
 }

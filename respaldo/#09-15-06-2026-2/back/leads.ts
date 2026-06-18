@@ -1,10 +1,4 @@
-export const appRoleValues = [
-  "guest",
-  "agent",
-  "admin",
-  "superadmin",
-  "custom",
-] as const;
+export const appRoleValues = ["guest", "agent", "admin", "superadmin"] as const;
 
 export type AppRole = (typeof appRoleValues)[number];
 
@@ -13,7 +7,6 @@ export const appRoleLabels: Record<AppRole, string> = {
   agent: "Agente",
   admin: "Administrador",
   superadmin: "Superadministrador",
-  custom: "Personalizado",
 };
 
 export const leadStatusValues = [
@@ -55,21 +48,11 @@ export const leadPrimaryPipelineValues = [
   "pausado",
 ] as const satisfies readonly LeadStatus[];
 
-export const leadPriorityValues = [
-  "gris",
-  "verde",
-  "amarillo",
-  "rojo",
-] as const;
+export const leadPriorityValues = ["gris", "verde", "amarillo", "rojo"] as const;
 
 export type LeadPriority = (typeof leadPriorityValues)[number];
 
-export const calendarSyncStatusValues = [
-  "disabled",
-  "pending",
-  "synced",
-  "error",
-] as const;
+export const calendarSyncStatusValues = ["disabled", "pending", "synced", "error"] as const;
 
 export type CalendarSyncStatus = (typeof calendarSyncStatusValues)[number];
 
@@ -95,21 +78,11 @@ export const leadSourceLabels: Record<LeadSource, string> = {
   otro: "Otro",
 };
 
-export const leadTypeValues = [
-  "corporativo",
-  "social",
-  "experiencia",
-  "reunion",
-  "otro",
-] as const;
+export const leadTypeValues = ["corporativo", "social", "experiencia", "reunion", "otro"] as const;
 
 export type LeadType = (typeof leadTypeValues)[number];
 
-export const leadTravelReasonValues = [
-  "social",
-  "corporativo",
-  "experiencia",
-] as const satisfies readonly LeadType[];
+export const leadTravelReasonValues = ["social", "corporativo", "experiencia"] as const satisfies readonly LeadType[];
 
 export type LeadTravelReason = (typeof leadTravelReasonValues)[number];
 
@@ -130,14 +103,8 @@ export const leadPartyKindLabels: Record<LeadPartyKind, string> = {
   empresa: "Empresa",
 };
 
-export function normalizeLeadTravelReason(
-  value: string | null | undefined
-): LeadTravelReason {
-  if (
-    value === "corporativo" ||
-    value === "social" ||
-    value === "experiencia"
-  ) {
+export function normalizeLeadTravelReason(value: string | null | undefined): LeadTravelReason {
+  if (value === "corporativo" || value === "social" || value === "experiencia") {
     return value;
   }
 
@@ -148,10 +115,7 @@ export function normalizeLeadTravelReason(
   return "social";
 }
 
-export function inferLeadPartyKind(input: {
-  nombreEmpresa?: string | null;
-  empresaNombre?: string | null;
-}): LeadPartyKind {
+export function inferLeadPartyKind(input: { nombreEmpresa?: string | null; empresaNombre?: string | null }): LeadPartyKind {
   const companyName = (input.empresaNombre ?? input.nombreEmpresa ?? "").trim();
   return companyName ? "empresa" : "persona";
 }
@@ -244,9 +208,7 @@ function toSafeNumber(value: unknown): number {
   return 0;
 }
 
-function toTimestamp(
-  value: number | string | Date | null | undefined
-): number | null {
+function toTimestamp(value: number | string | Date | null | undefined): number | null {
   if (value === null || value === undefined || value === "") {
     return null;
   }
@@ -263,10 +225,7 @@ function toTimestamp(
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function floorDaysUntil(
-  fromMs: number,
-  targetMs: number | null
-): number | null {
+function floorDaysUntil(fromMs: number, targetMs: number | null): number | null {
   if (!targetMs) {
     return null;
   }
@@ -274,10 +233,7 @@ function floorDaysUntil(
   return Math.max(0, Math.floor((targetMs - fromMs) / (1000 * 60 * 60 * 24)));
 }
 
-function floorHoursSince(
-  fromMs: number,
-  targetMs: number | null
-): number | null {
+function floorHoursSince(fromMs: number, targetMs: number | null): number | null {
   if (!targetMs) {
     return null;
   }
@@ -371,22 +327,13 @@ export function raisePriority(priority: LeadPriority): LeadPriority {
   return "rojo";
 }
 
-export function ensureMinimumPriority(
-  current: LeadPriority,
-  minimum: LeadPriority
-): LeadPriority {
+export function ensureMinimumPriority(current: LeadPriority, minimum: LeadPriority): LeadPriority {
   return priorityRank[current] >= priorityRank[minimum] ? current : minimum;
 }
 
-export function estimateLeadCommission(
-  valorTotal: number,
-  comisionPorcentaje: number
-) {
+export function estimateLeadCommission(valorTotal: number, comisionPorcentaje: number) {
   const safeValue = Math.max(0, Math.round(toSafeNumber(valorTotal)));
-  const safePercentage = Math.max(
-    0,
-    Math.min(100, toSafeNumber(comisionPorcentaje))
-  );
+  const safePercentage = Math.max(0, Math.min(100, toSafeNumber(comisionPorcentaje)));
   return Math.round((safeValue * safePercentage) / 100);
 }
 
@@ -407,9 +354,7 @@ export type LeadInitialQualificationChecklistInput = {
   precioParqueadero?: number | string | null;
 };
 
-export function getInitialQualificationChecklist(
-  input: LeadInitialQualificationChecklistInput
-) {
+export function getInitialQualificationChecklist(input: LeadInitialQualificationChecklistInput) {
   const nombreCliente = input.nombreCliente?.trim() ?? "";
   const telefono = input.telefono?.trim() ?? "";
   const correo = input.correo?.trim() ?? "";
@@ -417,38 +362,14 @@ export function getInitialQualificationChecklist(
   const objecionPrincipal = input.objecionPrincipal?.trim() ?? "";
   const fechaVisitaMs = toTimestamp(input.fechaVisita);
 
-  const cantidadMultiple = Math.max(
-    0,
-    Math.floor(toSafeNumber(input.cantidadMultiple))
-  );
-  const cantidadJunior = Math.max(
-    0,
-    Math.floor(toSafeNumber(input.cantidadJunior))
-  );
-  const cantidadSenior = Math.max(
-    0,
-    Math.floor(toSafeNumber(input.cantidadSenior))
-  );
-  const cantidadParqueadero = Math.max(
-    0,
-    Math.floor(toSafeNumber(input.cantidadParqueadero))
-  );
-  const precioMultiple = Math.max(
-    0,
-    Math.round(toSafeNumber(input.precioMultiple))
-  );
-  const precioJunior = Math.max(
-    0,
-    Math.round(toSafeNumber(input.precioJunior))
-  );
-  const precioSenior = Math.max(
-    0,
-    Math.round(toSafeNumber(input.precioSenior))
-  );
-  const precioParqueadero = Math.max(
-    0,
-    Math.round(toSafeNumber(input.precioParqueadero))
-  );
+  const cantidadMultiple = Math.max(0, Math.floor(toSafeNumber(input.cantidadMultiple)));
+  const cantidadJunior = Math.max(0, Math.floor(toSafeNumber(input.cantidadJunior)));
+  const cantidadSenior = Math.max(0, Math.floor(toSafeNumber(input.cantidadSenior)));
+  const cantidadParqueadero = Math.max(0, Math.floor(toSafeNumber(input.cantidadParqueadero)));
+  const precioMultiple = Math.max(0, Math.round(toSafeNumber(input.precioMultiple)));
+  const precioJunior = Math.max(0, Math.round(toSafeNumber(input.precioJunior)));
+  const precioSenior = Math.max(0, Math.round(toSafeNumber(input.precioSenior)));
+  const precioParqueadero = Math.max(0, Math.round(toSafeNumber(input.precioParqueadero)));
   const totalPersonas = cantidadMultiple + cantidadJunior + cantidadSenior;
   const valorTotal =
     cantidadMultiple * precioMultiple +
@@ -456,10 +377,7 @@ export function getInitialQualificationChecklist(
     cantidadSenior * precioSenior +
     cantidadParqueadero * precioParqueadero;
 
-  const contactoCompleto =
-    nombreCliente.length >= 3 &&
-    telefono.length >= 7 &&
-    /.+@.+\..+/.test(correo);
+  const contactoCompleto = nombreCliente.length >= 3 && telefono.length >= 7 && /.+@.+\..+/.test(correo);
   const visitaCompleta = Boolean(fechaVisitaMs && fechaVisitaMs > 0);
   const motivoCompleto = motivoVisita.length >= 3;
   const objecionCompleta = objecionPrincipal.length >= 2;
@@ -508,7 +426,7 @@ export function getInitialQualificationChecklist(
     },
   ] as const;
 
-  const completeCount = items.filter(item => item.complete).length;
+  const completeCount = items.filter((item) => item.complete).length;
   const totalCount = items.length;
   const ready = completeCount === totalCount;
 
@@ -526,48 +444,22 @@ export function getInitialQualificationChecklist(
 }
 
 export function computeLeadMetrics(input: LeadComputationInput) {
-  const cantidadMultiple = Math.max(
-    0,
-    Math.floor(toSafeNumber(input.cantidadMultiple))
-  );
-  const cantidadJunior = Math.max(
-    0,
-    Math.floor(toSafeNumber(input.cantidadJunior))
-  );
-  const cantidadSenior = Math.max(
-    0,
-    Math.floor(toSafeNumber(input.cantidadSenior))
-  );
-  const cantidadParqueadero = Math.max(
-    0,
-    Math.floor(toSafeNumber(input.cantidadParqueadero))
-  );
-  const precioMultiple = Math.max(
-    0,
-    Math.round(toSafeNumber(input.precioMultiple))
-  );
-  const precioJunior = Math.max(
-    0,
-    Math.round(toSafeNumber(input.precioJunior))
-  );
-  const precioSenior = Math.max(
-    0,
-    Math.round(toSafeNumber(input.precioSenior))
-  );
-  const precioParqueadero = Math.max(
-    0,
-    Math.round(toSafeNumber(input.precioParqueadero))
-  );
+  const cantidadMultiple = Math.max(0, Math.floor(toSafeNumber(input.cantidadMultiple)));
+  const cantidadJunior = Math.max(0, Math.floor(toSafeNumber(input.cantidadJunior)));
+  const cantidadSenior = Math.max(0, Math.floor(toSafeNumber(input.cantidadSenior)));
+  const cantidadParqueadero = Math.max(0, Math.floor(toSafeNumber(input.cantidadParqueadero)));
+  const precioMultiple = Math.max(0, Math.round(toSafeNumber(input.precioMultiple)));
+  const precioJunior = Math.max(0, Math.round(toSafeNumber(input.precioJunior)));
+  const precioSenior = Math.max(0, Math.round(toSafeNumber(input.precioSenior)));
+  const precioParqueadero = Math.max(0, Math.round(toSafeNumber(input.precioParqueadero)));
 
   const subtotalMultiple = cantidadMultiple * precioMultiple;
   const subtotalJunior = cantidadJunior * precioJunior;
   const subtotalSenior = cantidadSenior * precioSenior;
   const subtotalParqueadero = cantidadParqueadero * precioParqueadero;
   const totalPersonas = cantidadMultiple + cantidadJunior + cantidadSenior;
-  const valorTotal =
-    subtotalMultiple + subtotalJunior + subtotalSenior + subtotalParqueadero;
-  const ticketPromedio =
-    totalPersonas > 0 ? Math.round(valorTotal / totalPersonas) : 0;
+  const valorTotal = subtotalMultiple + subtotalJunior + subtotalSenior + subtotalParqueadero;
+  const ticketPromedio = totalPersonas > 0 ? Math.round(valorTotal / totalPersonas) : 0;
 
   const ahoraMs = toTimestamp(input.ahora) ?? Date.now();
   const fechaVisitaMs = toTimestamp(input.fechaVisita);
@@ -583,74 +475,31 @@ export function computeLeadMetrics(input: LeadComputationInput) {
   const scoreTicketPromedio = scoreByTicketPromedio(ticketPromedio);
   const scoreUrgencia = scoreByUrgencia(diasHastaVisita);
   const scoreRecencia = scoreByRecencia(horasDesdeIngreso);
-  const scoreTotal =
-    scoreCantidad +
-    scoreValorTotal +
-    scoreTicketPromedio +
-    scoreUrgencia +
-    scoreRecencia;
+  const scoreTotal = scoreCantidad + scoreValorTotal + scoreTicketPromedio + scoreUrgencia + scoreRecencia;
 
   const reglasAplicadas: string[] = [];
   const prioridadBase = priorityFromScore(scoreTotal);
   let prioridad = prioridadBase;
-  const scoreAltoThreshold = Math.max(
-    1,
-    Math.round(
-      toSafeNumber(input.scoreAltoThreshold) ||
-        defaultBusinessSettings.scoreAltoThreshold
-    )
-  );
-  const minimoPersonasAmarillo = Math.max(
-    1,
-    Math.round(
-      toSafeNumber(input.minimoPersonasAmarillo) ||
-        defaultBusinessSettings.minimoPersonasAmarillo
-    )
-  );
-  const minimoPersonasRojo = Math.max(
-    minimoPersonasAmarillo,
-    Math.round(
-      toSafeNumber(input.minimoPersonasRojo) ||
-        defaultBusinessSettings.minimoPersonasRojo
-    )
-  );
-  const minimoValorAmarillo = Math.max(
-    1,
-    Math.round(
-      toSafeNumber(input.minimoValorAmarillo) ||
-        defaultBusinessSettings.minimoValorAmarillo
-    )
-  );
-  const minimoValorRojo = Math.max(
-    minimoValorAmarillo,
-    Math.round(
-      toSafeNumber(input.minimoValorRojo) ||
-        defaultBusinessSettings.minimoValorRojo
-    )
-  );
+  const scoreAltoThreshold = Math.max(1, Math.round(toSafeNumber(input.scoreAltoThreshold) || defaultBusinessSettings.scoreAltoThreshold));
+  const minimoPersonasAmarillo = Math.max(1, Math.round(toSafeNumber(input.minimoPersonasAmarillo) || defaultBusinessSettings.minimoPersonasAmarillo));
+  const minimoPersonasRojo = Math.max(minimoPersonasAmarillo, Math.round(toSafeNumber(input.minimoPersonasRojo) || defaultBusinessSettings.minimoPersonasRojo));
+  const minimoValorAmarillo = Math.max(1, Math.round(toSafeNumber(input.minimoValorAmarillo) || defaultBusinessSettings.minimoValorAmarillo));
+  const minimoValorRojo = Math.max(minimoValorAmarillo, Math.round(toSafeNumber(input.minimoValorRojo) || defaultBusinessSettings.minimoValorRojo));
 
   if (totalPersonas >= minimoPersonasRojo) {
     prioridad = ensureMinimumPriority(prioridad, "rojo");
-    reglasAplicadas.push(
-      `Prioridad mínima roja por ${minimoPersonasRojo} o más personas.`
-    );
+    reglasAplicadas.push(`Prioridad mínima roja por ${minimoPersonasRojo} o más personas.`);
   } else if (totalPersonas >= minimoPersonasAmarillo) {
     prioridad = ensureMinimumPriority(prioridad, "amarillo");
-    reglasAplicadas.push(
-      `Prioridad mínima amarilla por ${minimoPersonasAmarillo} o más personas.`
-    );
+    reglasAplicadas.push(`Prioridad mínima amarilla por ${minimoPersonasAmarillo} o más personas.`);
   }
 
   if (valorTotal >= minimoValorRojo) {
     prioridad = ensureMinimumPriority(prioridad, "rojo");
-    reglasAplicadas.push(
-      `Prioridad mínima roja por valor total igual o superior a ${new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(minimoValorRojo)}.`
-    );
+    reglasAplicadas.push(`Prioridad mínima roja por valor total igual o superior a ${new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(minimoValorRojo)}.`);
   } else if (valorTotal >= minimoValorAmarillo) {
     prioridad = ensureMinimumPriority(prioridad, "amarillo");
-    reglasAplicadas.push(
-      `Prioridad mínima amarilla por valor total igual o superior a ${new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(minimoValorAmarillo)}.`
-    );
+    reglasAplicadas.push(`Prioridad mínima amarilla por valor total igual o superior a ${new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(minimoValorAmarillo)}.`);
   }
 
   if (diasHastaVisita !== null && diasHastaVisita <= 2) {
@@ -658,15 +507,9 @@ export function computeLeadMetrics(input: LeadComputationInput) {
     reglasAplicadas.push("Se sube un nivel por visita en 2 días o menos.");
   }
 
-  if (
-    horasDesdeIngreso !== null &&
-    horasDesdeIngreso <= 1 &&
-    scoreTotal >= scoreAltoThreshold
-  ) {
+  if (horasDesdeIngreso !== null && horasDesdeIngreso <= 1 && scoreTotal >= scoreAltoThreshold) {
     prioridad = raisePriority(prioridad);
-    reglasAplicadas.push(
-      "Se sube un nivel por lead muy reciente con score alto."
-    );
+    reglasAplicadas.push("Se sube un nivel por lead muy reciente con score alto.");
   }
 
   const explicacionBreve =
@@ -715,33 +558,21 @@ export function computeLeadMetrics(input: LeadComputationInput) {
 export function getLeadAlertFlags(
   metrics: ReturnType<typeof computeLeadMetrics>,
   fechaLimiteGestion?: number | string | Date | null,
-  estadoLead?: string | null
+  estadoLead?: string | null,
 ) {
   const ahoraMs = Date.now();
   const fechaLimiteGestionMs = toTimestamp(fechaLimiteGestion);
   const estadoActual = normalizeLeadStatus(estadoLead ?? "nuevo");
-  const vencido =
-    fechaLimiteGestionMs !== null && fechaLimiteGestionMs < ahoraMs;
-  const sinGestion =
-    metrics.horasDesdeUltimaGestion !== null &&
-    metrics.horasDesdeUltimaGestion >= 24;
-  const visitaProximaSinGestion =
-    metrics.diasHastaVisita !== null &&
-    metrics.diasHastaVisita <= 2 &&
-    sinGestion;
-  const altaPrioridadSinCierre =
-    ["amarillo", "rojo"].includes(metrics.prioridad) &&
-    !["ganado", "perdido"].includes(estadoActual);
+  const vencido = fechaLimiteGestionMs !== null && fechaLimiteGestionMs < ahoraMs;
+  const sinGestion = metrics.horasDesdeUltimaGestion !== null && metrics.horasDesdeUltimaGestion >= 24;
+  const visitaProximaSinGestion = metrics.diasHastaVisita !== null && metrics.diasHastaVisita <= 2 && sinGestion;
+  const altaPrioridadSinCierre = ["amarillo", "rojo"].includes(metrics.prioridad) && !["ganado", "perdido"].includes(estadoActual);
 
   return {
     vencido,
     sinGestion,
     visitaProximaSinGestion,
     altaPrioridadSinCierre,
-    requiereAtencion:
-      vencido ||
-      sinGestion ||
-      visitaProximaSinGestion ||
-      altaPrioridadSinCierre,
+    requiereAtencion: vencido || sinGestion || visitaProximaSinGestion || altaPrioridadSinCierre,
   };
 }

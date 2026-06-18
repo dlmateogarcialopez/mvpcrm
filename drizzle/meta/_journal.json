@@ -85,6 +85,13 @@
       "when": 1781416587926,
       "tag": "0011_metric_views",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1781579582878,
+      "tag": "0012_permissions",
+      "breakpoints": true
     }
   ]
 }

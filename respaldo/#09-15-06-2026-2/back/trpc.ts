@@ -1,13 +1,11 @@
-import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from "@shared/const";
+import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { appRoleValues } from "../../shared/leads";
 import type { TrpcContext } from "./context";
 
-const adminRoles = new Set<(typeof appRoleValues)[number]>([
-  "admin",
-  "superadmin",
-]);
+const adminRoles = new Set<(typeof appRoleValues)[number]>(["admin", "superadmin"]);
+
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -47,25 +45,5 @@ export const adminProcedure = t.procedure.use(
         user: ctx.user,
       },
     });
-  })
-);
-
-export const superadminProcedure = t.procedure.use(
-  t.middleware(async opts => {
-    const { ctx, next } = opts;
-
-    if (!ctx.user || ctx.user.role !== "superadmin") {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "Solo el superadministrador puede realizar esta acción.",
-      });
-    }
-
-    return next({
-      ctx: {
-        ...ctx,
-        user: ctx.user,
-      },
-    });
-  })
+  }),
 );
