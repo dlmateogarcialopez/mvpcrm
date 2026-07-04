@@ -2299,15 +2299,7 @@ export async function countLeadsInPipeline(
     .limit(1);
   if (!pipe) return 0;
 
-  if (pipe.order === 1) {
-    const all = await db
-      .select({ id: leads.id })
-      .from(leads)
-      .where(eq(leads.organizationId, organizationId));
-    return all.length;
-  }
-
-  // Para otros pipelines, contar desde lead_pipeline_stages
+  // Contar leads desde lead_pipeline_stages para todos los pipelines
   const rows = await db
     .select({ id: leadPipelineStages.id })
     .from(leadPipelineStages)
