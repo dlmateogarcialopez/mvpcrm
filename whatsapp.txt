@@ -1,0 +1,70 @@
+@app.route('/webhook', methods=['GET'])
+def webhook_whatsapp():
+    try:
+
+        VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
+
+        # Parsear parámetros de la solicitud de verificación
+        mode = request.args.get('hub.mode')
+        token = request.args.get('hub.verify_token')
+        challenge = request.args.get('hub.challenge')
+
+        # Verificar si se enviaron mode y token
+        if mode and token:
+            if mode == 'subscribe' and token == VERIFY_TOKEN:
+                print("WEBHOOK_VERIFIED")
+                return challenge, 200  # Retorna el challenge y código 200
+            else:
+                return '', 403  # Token no coincide, retorna 403 Forbidden
+        else:
+            return '', 400  # Faltan parámetros, retorna 400 Bad Request
+
+    except Exception as e:
+        # Manejo de errores (equivalente a boom.badImplementation)
+        return jsonify({"error": "webhook token error", "details": str(e)}), 500
+
+
+def enviar_mensaje_whatsapp(phone_number, message):
+    """Envía mensajes personalizados a WhatsApp correctamente"""
+
+    # 1. Configuración (usa variables de entorno en producción)
+    WHATSAPP_TOKEN = "EAARxCJ8hBigBR3JUraufJ5luwiZB6a6cZCIzPMpmKvu7bMoEqOoo4JqExi0PjUE1SiQFZBC8Stj3Ab3pDQ7ZCjWGym3WcB6cvH0eZBBMsTZBVfZBTB6jVEBMJnTAaZACCb3bkVZCqRcEL3XWGHYicmuDiBBLHZAZBZAv6GXAwuS3j7mYNyR9yJEIMKJP6LzRPJP2dgZDZD"
+    PHONE_NUMBER_ID = "103419152669584"  # Reemplaza con TU ID de número WhatsApp Business
+
+    # 2. Construir la URL correcta
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+
+    # 3. Cabeceras y datos
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": phone_number,
+        "type": "text",
+        "text": {"body": message}
+    }
+
+    # 4. Enviar la solicitud
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()  # Lanza error para respuestas 4XX/5XX
+
+        logging.info(f"Mensaje enviado a {phone_number}")
+        return True
+
+    except requests.exceptions.HTTPError as err:
+        error_details = response.json().get('error', {})
+        logging.error(f"""
+        Error al enviar mensaje:
+        - Código: {error_details.get('code')}
+        - Mensaje: {error_details.get('message')}
+        - Tipo: {error_details.get('type')}
+        """)
+        return False
+
+    except Exception as e:
+        logging.error(f"Error inesperado: {str(e)}")
+        return False        

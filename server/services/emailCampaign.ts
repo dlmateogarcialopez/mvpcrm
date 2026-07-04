@@ -15,8 +15,12 @@ function replacePlaceholders(text: string | null | undefined, lead: any): string
     .replace(/\{\{\s*value\s*\}\}/gi, (lead.valorTotal || 0).toLocaleString("es-CO"));
 }
 
-export async function executeEmailCampaign(campaignId: number, userId: number) {
-  const campaign = await getEmailCampaign(campaignId);
+export async function executeEmailCampaign(
+  campaignId: number,
+  userId: number,
+  organizationId: number
+) {
+  const campaign = await getEmailCampaign(campaignId, organizationId);
   if (!campaign) {
     throw new Error(`Campaña con ID ${campaignId} no encontrada.`);
   }

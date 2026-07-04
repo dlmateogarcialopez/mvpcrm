@@ -1,0 +1,75 @@
+fix(migration): use information_schema guard for CREATE INDEX
+
+La v2 de la migracion 0014 usaba `CREATE INDEX IF NOT
+EXISTS` que NO es sintaxis valida en MySQL (es patron de
+PostgreSQL/SQLite). El deploy fallo en produccion con:
+
+  ERROR 1064 (42000) at line 395: You have an error in your
+  SQL syntax; check the manual that corresponds to your
+  MySQL server version for the right syntax to use near
+  'IF NOT EXISTS `idx_organization_invitations_email`'
+
+Estado del DB en el momento del fallo:
+- Las 4 tablas nuevas (organizations, organization_members,
+  organization_settings, organization_invitations)
+  estaban creadas (el archivo se proceso hasta la linea 395).
+- Las 14 columnas organizationId en tablas de datos
+  estaban agregadas.
+- Las membresias y organization_settings insertados.
+- Las 6 foreign keys creadas.
+- Los 16 indices de organization_id NO se crearon (es la
+  seccion que fallo).
+
+Fix: reemplazar las 16 ocurrencias de `CREATE INDEX IF
+NOT EXISTS` por el mismo patron de prepared statement
+usado en otras partes del archivo, chequeando
+information_schema.STATISTICS antes de crear cada indice:
+
+  SET @idx_exists := (
+    SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'X'
+      AND INDEX_NAME = 'idx_X'
+  );
+  SET @sql := IF(@idx_exists = 0,
+    'CREATE INDEX `idx_X` ON `X` (`col`)',
+    'SELECT 1');
+  PREPARE stmt FROM @sql; EXECUTE stmt;
+  DEALLOCATE PREPARE stmt;
+
+Tambien se removio del bloque de indices la linea del
+UNIQUE `uniq_organization_members_org_user` porque ese
+indice ya fue creado como CONSTRAINT en la definicion
+de la tabla organization_members (linea ~26). Crearlo
+de nuevo fallaria por el constraint ya existente.
+
+Con este fix la migracion v2 es completamente
+re-ejecutable: las secciones 1-9 ya eran idempotentes
+(CREATE TABLE IF NOT EXISTS, ALTER con guards,
+INSERT con WHERE NOT EXISTS), y la seccion 10 ahora
+tambien lo es.
+
+Comandos para el server (root@hostname:~/mvp):
+
+  # 1. Copiar la version arreglada
+  docker cp drizzle/0014_multi_tenant_v2.sql \
+    mv-database:/tmp/0014_v2.sql
+
+  # 2. Re-aplicar (las secciones 1-9 deberian todas
+  # terminar en no-op; la seccion 10 crea los 16 indices)
+  docker exec -i mv-database bash -c \
+    "mysql -u mv_user -p'mv_password' cotizador_leads < /tmp/0014_v2.sql"
+
+  # 3. Validar
+  docker exec -i mv-database bash -c \
+    "mysql -u mv_user -p'mv_password' cotizador_leads" \
+    < scripts/verify-backfill-0014.sql
+
+  # 4. Sanity: re-aplicar una vez mas para confirmar
+  # idempotencia (debe terminar sin errores)
+  docker exec -i mv-database bash -c \
+    "mysql -u mv_user -p'mv_password' cotizador_leads < /tmp/0014_v2.sql"
+
+NO es necesario volver a hacer DROP TABLE ni a reiniciar
+el DB: la migracion ya esta aplicada salvo por los 16
+indices, y este fix los completa sin afectar el resto.

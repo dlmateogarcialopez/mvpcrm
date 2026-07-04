@@ -46,3 +46,18 @@ export function getSessionCookieOptions(
     secure: isSecureRequest(req),
   };
 }
+
+/**
+ * Opciones para la cookie `active_org_id`. No es httpOnly
+ * porque el cliente la lee para mostrar el OrgSwitcher y
+ * auto-redirigir a /select-org si quedó stale.
+ */
+export function getActiveOrgCookieOptions(
+  req: Request
+): Pick<CookieOptions, "domain" | "path" | "sameSite" | "secure"> {
+  return {
+    path: "/",
+    sameSite: "lax",
+    secure: isSecureRequest(req),
+  };
+}

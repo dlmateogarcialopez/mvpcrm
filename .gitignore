@@ -121,3 +121,9 @@ client/public/__manus__/version.json
 
 # Agent data
 .agent/
+/respaldo
+
+.playwright-mcp
+
+# Local Docker bind mount data
+docker-data/

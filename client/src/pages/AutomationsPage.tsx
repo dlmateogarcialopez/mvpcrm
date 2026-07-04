@@ -60,7 +60,6 @@ const TRIGGERS = [
 const ACTIONS = [
   { value: "assign_agent", label: "Asignar a un agente" },
   { value: "send_email", label: "Enviar email" },
-  { value: "send_telegram", label: "Enviar alerta por Telegram" },
   { value: "add_label", label: "Añadir etiqueta" },
   { value: "change_status", label: "Cambiar estado" },
   {
@@ -99,6 +98,12 @@ export function AutomationsPage() {
     enabled: isSuperadmin,
   });
   const recipients = recipientsQuery.data ?? [];
+
+  const membersTelegramQuery = trpc.organizations.membersWithTelegram.useQuery(
+    undefined,
+    { refetchOnWindowFocus: false }
+  );
+  const membersTelegram = membersTelegramQuery.data ?? [];
 
   const createRecipientMutation = trpc.automation.recipients.create.useMutation(
     {
@@ -158,6 +163,21 @@ export function AutomationsPage() {
   const [editingAction, setEditingAction] = useState("");
   const [editingTriggerCondition, setEditingTriggerCondition] = useState("");
   const [editingActionData, setEditingActionData] = useState("");
+  const [editingPipelineId, setEditingPipelineId] = useState<number | null>(
+    null
+  );
+  const [editingStageNames, setEditingStageNames] = useState<string[]>([]);
+
+  // Pipelines y stages para el selector de status_changed
+  const pipelinesQuery = trpc.pipeline.list.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
+  const pipelines = (pipelinesQuery.data as any[] | undefined) ?? [];
+  const stagesQuery = trpc.pipeline.list.useQuery(
+    editingPipelineId ? { pipelineId: editingPipelineId } : undefined,
+    { enabled: editingPipelineId !== null, refetchOnWindowFocus: false }
+  );
+  const stages = (stagesQuery.data as any[] | undefined) ?? [];
 
   const handleAddAutomation = () => {
     createMutation.mutate({
@@ -186,16 +206,55 @@ export function AutomationsPage() {
     setEditingName(automation.name);
     setEditingTrigger(automation.trigger);
     setEditingAction(automation.action);
-    setEditingTriggerCondition(automation.triggerCondition ?? "");
     setEditingActionData(automation.actionData ?? "");
+    // Parsear triggerCondition: puede ser string simple o JSON {pipelineId, stageNames}
+    const cond = automation.triggerCondition;
+    if (cond && cond.trim().startsWith("{")) {
+      try {
+        const parsed = JSON.parse(cond);
+        if (typeof parsed === "object" && parsed !== null) {
+          if (typeof parsed.pipelineId === "number") {
+            setEditingPipelineId(parsed.pipelineId);
+          } else {
+            setEditingPipelineId(null);
+          }
+          if (Array.isArray(parsed.stageNames)) {
+            setEditingStageNames(
+              parsed.stageNames.filter((n: any) => typeof n === "string")
+            );
+          } else {
+            setEditingStageNames([]);
+          }
+          setEditingTriggerCondition("");
+          return;
+        }
+      } catch {
+        // Fallback to string
+      }
+    }
+    setEditingPipelineId(null);
+    setEditingStageNames([]);
+    setEditingTriggerCondition(cond ?? "");
   };
 
   const handleEditSave = () => {
     if (editingId !== null) {
       const usesCondition =
         editingTrigger === "proxima_a_vencer" ||
-        editingTrigger === "label_added" ||
-        editingTrigger === "status_changed";
+        editingTrigger === "label_added";
+
+      // Para status_changed, serializar pipeline + stageNames como JSON
+      let triggerCondition = usesCondition ? editingTriggerCondition : "";
+      if (editingTrigger === "status_changed") {
+        if (editingPipelineId && editingStageNames.length > 0) {
+          triggerCondition = JSON.stringify({
+            pipelineId: editingPipelineId,
+            stageNames: editingStageNames,
+          });
+        } else {
+          triggerCondition = ""; // sin filtro = todos
+        }
+      }
 
       const usesActionDataRecipient =
         editingAction === "send_telegram_to_user" ||
@@ -206,7 +265,7 @@ export function AutomationsPage() {
         name: editingName,
         trigger: editingTrigger,
         action: editingAction,
-        triggerCondition: usesCondition ? editingTriggerCondition : "",
+        triggerCondition,
         actionData: usesActionDataRecipient ? editingActionData : "",
       });
       setEditingId(null);
@@ -360,15 +419,75 @@ export function AutomationsPage() {
                 )}
 
                 {editingTrigger === "status_changed" && (
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground">
-                      Estado a detectar
-                    </label>
-                    <Input
-                      value={editingTriggerCondition}
-                      onChange={e => setEditingTriggerCondition(e.target.value)}
-                      placeholder="Estado a detectar (ej. pausado) — vacío = todos"
-                    />
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Embudo
+                      </label>
+                      <select
+                        className="rounded-md border bg-background px-3 py-2 text-sm w-full"
+                        value={editingPipelineId ?? ""}
+                        onChange={e => {
+                          const v = e.target.value;
+                          setEditingPipelineId(v ? Number(v) : null);
+                          setEditingStageNames([]);
+                        }}
+                      >
+                        <option value="">— Cualquiera —</option>
+                        {pipelines.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {editingPipelineId && (
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">
+                          Fases a detectar
+                        </label>
+                        {stages.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            Cargando fases…
+                          </p>
+                        ) : (
+                          <div className="space-y-1.5 rounded-md border bg-background p-2 max-h-60 overflow-y-auto">
+                            {stages.map(s => (
+                              <label
+                                key={s.id}
+                                className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted/40 cursor-pointer"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={editingStageNames.includes(s.name)}
+                                  onChange={e => {
+                                    if (e.target.checked) {
+                                      setEditingStageNames(prev => [
+                                        ...prev,
+                                        s.name,
+                                      ]);
+                                    } else {
+                                      setEditingStageNames(prev =>
+                                        prev.filter(n => n !== s.name)
+                                      );
+                                    }
+                                  }}
+                                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                />
+                                <span className="text-sm">
+                                  {s.displayName || s.name}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Si no seleccionas ninguna fase, se dispara en
+                          cualquier cambio de estado.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -376,6 +495,11 @@ export function AutomationsPage() {
                   editingAction === "send_email_to_user") && (
                   <RecipientPickerSection
                     recipients={recipients}
+                    membersTelegram={
+                      editingAction === "send_telegram_to_user"
+                        ? membersTelegram
+                        : []
+                    }
                     value={editingActionData}
                     onChange={setEditingActionData}
                     onCreateInline={async payload => {
@@ -521,6 +645,12 @@ interface RecipientLite {
 
 interface RecipientPickerSectionProps {
   recipients: RecipientLite[];
+  membersTelegram: {
+    userId: number;
+    name: string;
+    email: string | null;
+    telegramChatId: string | null;
+  }[];
   value: string;
   onChange: (v: string) => void;
   onCreateInline: (payload: {
@@ -535,6 +665,7 @@ interface RecipientPickerSectionProps {
 
 function RecipientPickerSection({
   recipients,
+  membersTelegram,
   value,
   onChange,
   onCreateInline,
@@ -546,16 +677,52 @@ function RecipientPickerSection({
   const [newEmail, setNewEmail] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Resolver recipientId actual desde el value
-  const currentId = useMemo(() => {
-    if (!value) return null;
+  // Parsear el value a una lista de IDs seleccionados.
+  // Acepta formato nuevo: { userIds: [...], recipientIds: [...] }
+  // y formato viejo: { userId: N } o { recipientId: N } para retrocompatibilidad.
+  const selectedUserIds = useMemo<number[]>(() => {
+    if (!value) return [];
     try {
       const parsed = JSON.parse(value);
-      return parsed?.recipientId ?? null;
-    } catch {
-      return null;
-    }
+      if (Array.isArray(parsed?.userIds)) {
+        return parsed.userIds.filter((n: any) => typeof n === "number");
+      }
+      if (typeof parsed?.userId === "number") {
+        return [parsed.userId];
+      }
+    } catch {}
+    return [];
   }, [value]);
+
+  const selectedRecipientIds = useMemo<number[]>(() => {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed?.recipientIds)) {
+        return parsed.recipientIds.filter((n: any) => typeof n === "number");
+      }
+      if (typeof parsed?.recipientId === "number") {
+        return [parsed.recipientId];
+      }
+    } catch {}
+    return [];
+  }, [value]);
+
+  const toggleUser = (userId: number) => {
+    const next = selectedUserIds.includes(userId)
+      ? selectedUserIds.filter(id => id !== userId)
+      : [...selectedUserIds, userId];
+    onChange(
+      JSON.stringify({ userIds: next, recipientIds: selectedRecipientIds })
+    );
+  };
+
+  const toggleRecipient = (recipientId: number) => {
+    const next = selectedRecipientIds.includes(recipientId)
+      ? selectedRecipientIds.filter(id => id !== recipientId)
+      : [...selectedRecipientIds, recipientId];
+    onChange(JSON.stringify({ userIds: selectedUserIds, recipientIds: next }));
+  };
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -570,7 +737,17 @@ function RecipientPickerSection({
         notes: null,
         isActive: true,
       });
-      onChange(JSON.stringify({ recipientId: created.id }));
+      // Si era el primer destinatario seleccionado, automáticamente lo agregamos a la lista.
+      const nextRecipients =
+        selectedRecipientIds.length === 0
+          ? [created.id]
+          : [...selectedRecipientIds, created.id];
+      onChange(
+        JSON.stringify({
+          userIds: selectedUserIds,
+          recipientIds: nextRecipients,
+        })
+      );
       setNewName("");
       setNewTelegram("");
       setNewEmail("");
@@ -580,40 +757,106 @@ function RecipientPickerSection({
     }
   };
 
+  const totalSelected = selectedUserIds.length + selectedRecipientIds.length;
+
   return (
     <div className="space-y-2 rounded-2xl border bg-muted/20 p-3">
       <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
         <User className="h-3 w-3" />
         Destinatario {channel === "telegram" ? "(Telegram)" : "(Email)"}
       </label>
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          value={currentId ?? ""}
-          onChange={e => {
-            const id = e.target.value;
-            onChange(id ? JSON.stringify({ recipientId: Number(id) }) : "");
-          }}
-          className="rounded border bg-background px-3 py-2 flex-1 min-w-[180px]"
-        >
-          <option value="">— Selecciona un destinatario —</option>
-          {recipients.map(r => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-              {r.isActive === false ? " (inactivo)" : ""} —{" "}
-              {channel === "telegram"
-                ? r.telegramChatId || "(sin chatId)"
-                : r.email || "(sin email)"}
-            </option>
-          ))}
-        </select>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => setShowNew(s => !s)}
-        >
-          {showNew ? "Cancelar" : "+ Nuevo destinatario"}
-        </Button>
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">
+            {totalSelected === 0
+              ? "Ningún destinatario seleccionado"
+              : `${totalSelected} destinatario${totalSelected === 1 ? "" : "s"} seleccionado${totalSelected === 1 ? "" : "s"}`}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setShowNew(s => !s)}
+          >
+            {showNew ? "Cancelar" : "+ Nuevo destinatario"}
+          </Button>
+        </div>
+
+        <div className="space-y-3 max-h-72 overflow-y-auto rounded-xl border bg-background p-3">
+          {channel === "telegram" && membersTelegram.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground px-1">
+                👤 Miembros de la organización (Telegram)
+              </p>
+              {membersTelegram.map(m => (
+                <label
+                  key={"user_" + m.userId}
+                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/40 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedUserIds.includes(m.userId)}
+                    onChange={() => toggleUser(m.userId)}
+                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                  />
+                  <span className="flex-1 text-sm">
+                    {m.name || m.email}
+                    <span className="ml-2 font-mono text-xs text-muted-foreground">
+                      {m.telegramChatId}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+
+          {recipients.filter(r =>
+            channel === "telegram" ? r.telegramChatId : r.email
+          ).length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground px-1">
+                📋 Destinatarios predefinidos
+              </p>
+              {recipients
+                .filter(r =>
+                  channel === "telegram" ? r.telegramChatId : r.email
+                )
+                .map(r => (
+                  <label
+                    key={r.id}
+                    className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/40 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedRecipientIds.includes(r.id)}
+                      onChange={() => toggleRecipient(r.id)}
+                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                    <span className="flex-1 text-sm">
+                      {r.name}
+                      {r.isActive === false && (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          (inactivo)
+                        </span>
+                      )}
+                      <span className="ml-2 font-mono text-xs text-muted-foreground">
+                        {channel === "telegram"
+                          ? r.telegramChatId || "(sin chatId)"
+                          : r.email || "(sin email)"}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+            </div>
+          )}
+
+          {channel === "telegram" && membersTelegram.length === 0 && (
+            <p className="text-xs text-muted-foreground px-1">
+              No hay miembros con chat ID de Telegram configurado. Configura el
+              chat ID de tus miembros en Configuración.
+            </p>
+          )}
+        </div>
       </div>
 
       {showNew && (

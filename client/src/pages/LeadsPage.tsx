@@ -15,6 +15,7 @@ import {
   Save,
   Search,
   Sparkles,
+  Trash2,
   Upload,
   UserRound,
   Clock3,
@@ -638,6 +639,33 @@ export default function LeadsPage() {
       enabled: false,
     }
   );
+
+  const deleteMutation = trpc.leads.delete.useMutation({
+    onSuccess: async () => {
+      toast.success("Oportunidad eliminada.");
+      setSelectedLeadId("");
+      setMode("create");
+      syncLeadQueryParam();
+      setDetailPanelOpen(false);
+      await Promise.all([
+        utils.leads.list.invalidate(),
+        utils.leads.dashboard.invalidate(),
+      ]);
+    },
+    onError: error => toast.error(error.message),
+  });
+
+  const handleDeleteLead = async () => {
+    if (!selectedLeadId) return;
+    if (
+      !window.confirm(
+        "¿Eliminar esta oportunidad? Esta acción no se puede deshacer."
+      )
+    ) {
+      return;
+    }
+    await deleteMutation.mutateAsync({ publicId: selectedLeadId });
+  };
 
   const handleDownloadTemplate = async () => {
     toast.loading("Generando plantilla...");
@@ -2367,13 +2395,28 @@ export default function LeadsPage() {
               </div>
               <div className="flex gap-2">
                 {mode === "edit" ? (
-                  <button
-                    type="button"
-                    onClick={() => startCreateMode()}
-                    className="inline-flex h-11 items-center justify-center rounded-xl border bg-background px-4 text-sm font-medium transition hover:bg-muted"
-                  >
-                    Cancelar edición
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleDeleteLead}
+                      disabled={deleteMutation.isPending}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900"
+                    >
+                      {deleteMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                      Eliminar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => startCreateMode()}
+                      className="inline-flex h-11 items-center justify-center rounded-xl border bg-background px-4 text-sm font-medium transition hover:bg-muted"
+                    >
+                      Cancelar edición
+                    </button>
+                  </>
                 ) : null}
                 <button
                   type="submit"

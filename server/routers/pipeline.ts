@@ -12,18 +12,29 @@ import { renameInAutomationRules } from "../services/automationTriggers";
 export const pipelineRouter = router({
   list: protectedProcedure
     .input(z.object({ pipelineId: z.number().optional() }).optional())
-    .query(async ({ input }) => {
-      return db.listPipelineStages(input?.pipelineId);
+    .query(async ({ ctx, input }) => {
+      // Sin pipelineId: devolver todos los pipelines de la org
+      // Con pipelineId: devolver las fases de ese pipeline (compatible hacia atrás)
+      if (!input?.pipelineId) {
+        return db.listPipelines(ctx.activeOrganizationId ?? 1);
+      }
+      return db.listPipelineStages(
+        ctx.activeOrganizationId ?? 1,
+        input.pipelineId
+      );
     }),
 
   listActive: protectedProcedure
     .input(z.object({ pipelineId: z.number().optional() }).optional())
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const pipelineId = input?.pipelineId;
       if (!pipelineId) {
-        return db.listActivePipelineStages();
+        return db.listActivePipelineStages(ctx.activeOrganizationId ?? 1);
       }
-      return db.listActivePipelineStages(pipelineId);
+      return db.listActivePipelineStages(
+        ctx.activeOrganizationId ?? 1,
+        pipelineId
+      );
     }),
 
   /**
@@ -31,11 +42,17 @@ export const pipelineRouter = router({
    */
   leadCounts: protectedProcedure
     .input(z.object({ pipelineId: z.number().optional() }).optional())
-    .query(async ({ input }) => {
-      const stages = await db.listPipelineStages(input?.pipelineId);
+    .query(async ({ ctx, input }) => {
+      const stages = await db.listPipelineStages(
+        ctx.activeOrganizationId ?? 1,
+        input?.pipelineId
+      );
       const counts: Record<number, number> = {};
       for (const s of stages) {
-        counts[s.id] = await db.countLeadsByStageId(s.id);
+        counts[s.id] = await db.countLeadsByStageId(
+          s.id,
+          ctx.activeOrganizationId ?? 1
+        );
       }
       return counts;
     }),
@@ -53,8 +70,11 @@ export const pipelineRouter = router({
         kind: z.enum(["open", "won", "lost", "paused"]).default("open"),
       })
     )
-    .mutation(async ({ input }) => {
-      const all = await db.listPipelineStages(input.pipelineId);
+    .mutation(async ({ ctx, input }) => {
+      const all = await db.listPipelineStages(
+        ctx.activeOrganizationId ?? 1,
+        input.pipelineId
+      );
       const dup = all.find(
         s => s.name === input.name || s.displayName === input.displayName
       );
@@ -74,6 +94,7 @@ export const pipelineRouter = router({
         order,
         isActive: true,
         kind: input.kind,
+        organizationId: ctx.activeOrganizationId ?? 1,
       });
     }),
 
@@ -91,7 +112,7 @@ export const pipelineRouter = router({
         kind: z.enum(["open", "won", "lost", "paused"]).optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
       const current = await db.getPipelineStage(id);
       if (!current) {
@@ -101,9 +122,11 @@ export const pipelineRouter = router({
         });
       }
 
+      const orgId = ctx.activeOrganizationId ?? 1;
+
       // Validar unicidad dentro del mismo pipeline
       if (data.name && data.name !== current.name) {
-        const all = await db.listPipelineStages(current.pipelineId);
+        const all = await db.listPipelineStages(orgId, current.pipelineId);
         if (all.some(s => s.id !== id && s.name === data.name)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -113,7 +136,7 @@ export const pipelineRouter = router({
         }
       }
       if (data.displayName && data.displayName !== current.displayName) {
-        const all = await db.listPipelineStages(current.pipelineId);
+        const all = await db.listPipelineStages(orgId, current.pipelineId);
         if (all.some(s => s.id !== id && s.displayName === data.displayName)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -133,10 +156,18 @@ export const pipelineRouter = router({
 
       // Renombrado en cascada en reglas de automatización
       if (data.name && data.name !== current.name) {
-        await renameInAutomationRules(current.name, data.name);
+        await renameInAutomationRules(
+          current.name,
+          data.name,
+          current.organizationId
+        );
       }
       if (data.displayName && data.displayName !== current.displayName) {
-        await renameInAutomationRules(current.displayName, data.displayName);
+        await renameInAutomationRules(
+          current.displayName,
+          data.displayName,
+          current.organizationId
+        );
       }
 
       return updated;
@@ -144,7 +175,7 @@ export const pipelineRouter = router({
 
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const stage = await db.getPipelineStage(input.id);
       if (!stage) {
         throw new TRPCError({
@@ -152,7 +183,10 @@ export const pipelineRouter = router({
           message: "Fase no encontrada.",
         });
       }
-      const leadsCount = await db.countLeadsByStageId(input.id);
+      const leadsCount = await db.countLeadsByStageId(
+        input.id,
+        ctx.activeOrganizationId ?? 1
+      );
       if (leadsCount > 0) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
@@ -178,7 +212,7 @@ export const pipelineRouter = router({
 
   toggleActive: protectedProcedure
     .input(z.object({ id: z.number(), isActive: z.boolean() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const stage = await db.getPipelineStage(input.id);
       if (!stage) {
         throw new TRPCError({
@@ -187,7 +221,10 @@ export const pipelineRouter = router({
         });
       }
       if (input.isActive === false) {
-        const leadsCount = await db.countLeadsByStageId(input.id);
+        const leadsCount = await db.countLeadsByStageId(
+          input.id,
+          ctx.activeOrganizationId ?? 1
+        );
         if (leadsCount > 0) {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",

@@ -3,26 +3,34 @@ import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import * as db from "../db";
 
+const orgIdOrFail = (ctx: any): number => {
+  if (!ctx.activeOrganizationId) throw new TRPCError({ code: "FORBIDDEN", message: "No hay organización activa." });
+  return ctx.activeOrganizationId;
+};
+
 /**
  * Router de gestión de embudos (pipelines).
- * Todos los procedimientos usan `protectedProcedure` (cualquier usuario
- * autenticado puede crear/editar/eliminar). No hay gating por rol.
+ * Los listados y operaciones ahora están scopados por
+ * `ctx.activeOrganizationId` para no mezclar datos entre orgs.
  */
 export const pipelinesRouter = router({
-  list: protectedProcedure.query(async () => {
-    return db.listPipelines();
+  list: protectedProcedure.query(async ({ ctx }) => {
+    const orgId = orgIdOrFail(ctx);
+    return db.listPipelines(orgId);
   }),
 
-  listActive: protectedProcedure.query(async () => {
-    return db.listActivePipelines();
+  listActive: protectedProcedure.query(async ({ ctx }) => {
+    const orgId = orgIdOrFail(ctx);
+    return db.listActivePipelines(orgId);
   }),
 
   /**
    * Lista de embudos con estadísticas: cantidad de fases activas
    * y cantidad de leads asignados.
    */
-  listWithStats: protectedProcedure.query(async () => {
-    const all = await db.listPipelines();
+  listWithStats: protectedProcedure.query(async ({ ctx }) => {
+    const orgId = orgIdOrFail(ctx);
+    const all = await db.listPipelines(orgId);
     const result: Array<{
       id: number;
       name: string;
@@ -38,9 +46,9 @@ export const pipelinesRouter = router({
     }> = [];
 
     for (const p of all) {
-      const stages = await db.listPipelineStages(p.id);
+      const stages = await db.listPipelineStages(orgId, p.id);
       const activeStages = stages.filter(s => s.isActive);
-      const leadCount = await db.countLeadsInPipeline(p.id);
+      const leadCount = await db.countLeadsInPipeline(p.id, orgId);
       result.push({
         id: p.id,
         name: p.name,
@@ -60,12 +68,18 @@ export const pipelinesRouter = router({
 
   get: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return db.getPipeline(input.id);
+    .query(async ({ ctx, input }) => {
+      const pipeline = await db.getPipeline(input.id);
+      if (!pipeline || pipeline.organizationId !== (ctx.activeOrganizationId ?? 1)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Embudo no encontrado." });
+      }
+      return pipeline;
     }),
 
-  getDefault: protectedProcedure.query(async () => {
-    return db.getDefaultPipeline();
+  getDefault: protectedProcedure.query(async ({ ctx }) => {
+    const orgId = ctx.activeOrganizationId;
+    if (!orgId) return null;
+    return db.getDefaultPipeline(orgId);
   }),
 
   create: protectedProcedure
@@ -80,12 +94,14 @@ export const pipelinesRouter = router({
         copyFromPipelineId: z.number().optional().nullable(),
       })
     )
-    .mutation(async ({ input }) => {
-      const existing = await db.listPipelines();
+    .mutation(async ({ ctx, input }) => {
+      const orgId = orgIdOrFail(ctx);
+      // Unicidad del nombre solo dentro de la org activa (no global)
+      const existing = await db.listPipelines(orgId);
       if (existing.some(p => p.name === input.name)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Ya existe un embudo con ese nombre.",
+          message: "Ya existe un embudo con ese nombre en tu organización.",
         });
       }
       const order = existing.length + 1;
@@ -95,11 +111,20 @@ export const pipelinesRouter = router({
         color: input.color,
         order,
         isActive: true,
+        organizationId: orgId,
       });
 
-      // Si se solicita copiar fases de otro pipeline, copiarlas como "open".
       if (input.copyFromPipelineId) {
+        // Validar que el pipeline fuente es de la misma org
+        const source = await db.getPipeline(input.copyFromPipelineId);
+        if (!source || source.organizationId !== orgId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "El embudo fuente no pertenece a tu organización.",
+          });
+        }
         const sourceStages = await db.listPipelineStages(
+          orgId,
           input.copyFromPipelineId
         );
         for (let i = 0; i < sourceStages.length; i++) {
@@ -111,7 +136,8 @@ export const pipelinesRouter = router({
             color: s.color ?? "#3b82f6",
             order: s.order ?? i + 1,
             isActive: true,
-            kind: "open", // al copiar, todas inician como "open"; el usuario las cambia
+            kind: "open",
+            organizationId: orgId,
           });
         }
       }
@@ -132,7 +158,7 @@ export const pipelinesRouter = router({
         isActive: z.boolean().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
       const current = await db.getPipeline(id);
       if (!current) {
@@ -141,9 +167,27 @@ export const pipelinesRouter = router({
           message: "Embudo no encontrado.",
         });
       }
+      // Validacion cross-tenant: el pipeline debe ser de la org activa
+      const orgId = orgIdOrFail(ctx);
+      if (current.organizationId !== orgId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "El embudo no pertenece a tu organización.",
+        });
+      }
+      // Unicidad del nombre dentro de la org (si se esta renombrando)
+      if (data.name && data.name !== current.name) {
+        const all = await db.listPipelines(orgId);
+        if (all.some(p => p.id !== id && p.name === data.name)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Ya existe un embudo con ese nombre en tu organización.",
+          });
+        }
+      }
       // No permitir desactivar si tiene leads
       if (data.isActive === false) {
-        const leadCount = await db.countLeadsInPipeline(id);
+        const leadCount = await db.countLeadsInPipeline(id, orgId);
         if (leadCount > 0) {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
@@ -156,7 +200,7 @@ export const pipelinesRouter = router({
 
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const pipeline = await db.getPipeline(input.id);
       if (!pipeline) {
         throw new TRPCError({
@@ -164,7 +208,15 @@ export const pipelinesRouter = router({
           message: "Embudo no encontrado.",
         });
       }
-      const leadCount = await db.countLeadsInPipeline(input.id);
+      // Validacion cross-tenant
+      const orgId = orgIdOrFail(ctx);
+      if (pipeline.organizationId !== orgId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "El embudo no pertenece a tu organización.",
+        });
+      }
+      const leadCount = await db.countLeadsInPipeline(input.id, ctx.activeOrganizationId ?? 1);
       if (leadCount > 0) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
@@ -177,7 +229,19 @@ export const pipelinesRouter = router({
 
   reorder: protectedProcedure
     .input(z.object({ orderedIds: z.array(z.number()) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const orgId = orgIdOrFail(ctx);
+      // Validar que todos los ids pertenecen a la org activa
+      const all = await db.listPipelines(orgId);
+      const ownIds = new Set(all.map(p => p.id));
+      for (const id of input.orderedIds) {
+        if (!ownIds.has(id)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Uno o más embudos no pertenecen a tu organización.",
+          });
+        }
+      }
       await db.reorderPipelines(input.orderedIds);
       return { success: true };
     }),
@@ -256,7 +320,9 @@ export const pipelinesRouter = router({
    */
   savedViews: router({
     list: protectedProcedure.query(async ({ ctx }) => {
-      return db.listMetricViewsForUser(ctx.user.id);
+      const orgId = ctx.activeOrganizationId;
+      if (!orgId) return [];
+      return db.listMetricViewsForUser(ctx.user.id, orgId);
     }),
 
     create: protectedProcedure
@@ -267,10 +333,12 @@ export const pipelinesRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
+        const orgId = ctx.activeOrganizationId;
         const saved = await db.createMetricView({
           userId: ctx.user.id,
           name: input.name,
           config: JSON.stringify(input.config),
+          organizationId: orgId ?? 1,
         });
         return { ...saved, config: JSON.parse(saved.config as string) };
       }),

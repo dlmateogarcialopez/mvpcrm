@@ -42,3 +42,6 @@ vitest.config.ts
 .prettierignore
 *.zip
 *.tar.gz
+
+# Local bind mount data (not part of the image)
+docker-data/

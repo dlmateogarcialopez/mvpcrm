@@ -1,7 +1,14 @@
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import {
+  ACTIVE_ORG_COOKIE_NAME,
+  COOKIE_NAME,
+  ONE_YEAR_MS,
+} from "@shared/const";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { getSessionCookieOptions } from "./_core/cookies";
+import {
+  getActiveOrgCookieOptions,
+  getSessionCookieOptions,
+} from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { leadsRouter } from "./routers/leads";
@@ -10,6 +17,9 @@ import { automationRouter } from "./routers/automation";
 import { pipelineRouter } from "./routers/pipeline";
 import { pipelinesRouter } from "./routers/pipelines";
 import { permissionsRouter } from "./routers/permissions";
+import { organizationsRouter } from "./routers/organizations";
+import { dialingRouter } from "./routers/dialing";
+import { phoneListsRouter } from "./routers/phoneLists";
 import { hashPassword, verifyPassword } from "./_core/password";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
@@ -23,6 +33,11 @@ export const appRouter = router({
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      const orgCookieOptions = getActiveOrgCookieOptions(ctx.req);
+      ctx.res.clearCookie(ACTIVE_ORG_COOKIE_NAME, {
+        ...orgCookieOptions,
+        maxAge: -1,
+      });
       return {
         success: true,
       } as const;
@@ -98,7 +113,29 @@ export const appRouter = router({
           maxAge: ONE_YEAR_MS,
         });
 
-        return user;
+        // Auto-seleccionar org si el usuario pertenece a exactamente una.
+        // Si pertenece a varias, el cliente muestra el selector (fase 3).
+        // Si no pertenece a ninguna, la UI muestra "Contacta al superadmin".
+        const orgs = await db.listOrganizationsForUser(user.id);
+        if (orgs.length === 1) {
+          const orgCookieOptions = getActiveOrgCookieOptions(ctx.req);
+          ctx.res.cookie(ACTIVE_ORG_COOKIE_NAME, String(orgs[0].id), {
+            ...orgCookieOptions,
+            maxAge: ONE_YEAR_MS,
+          });
+        }
+
+        return {
+          ...user,
+          organizations: orgs.map(o => ({
+            id: o.id,
+            name: o.name,
+            slug: o.slug,
+            orgRole: o.orgRole,
+            displayName: null, // se rellena en el cliente con currentSettings
+            primaryColor: null,
+          })),
+        };
       }),
 
     createUser: protectedProcedure
@@ -109,6 +146,7 @@ export const appRouter = router({
           password: z.string().min(6),
           role: z.enum(appRoleValues),
           permissionIds: z.array(z.number()).optional(),
+          organizationId: z.number().int().positive().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -137,6 +175,12 @@ export const appRouter = router({
 
         const pwdHash = hashPassword(input.password);
 
+        // Si hay org activa (caso normal multi-tenant), el nuevo
+        // usuario se agrega como miembro de esa org. Si no hay
+        // org activa, fallback a org=1 (legacy).
+        const targetOrgId =
+          input.organizationId ?? ctx.activeOrganizationId ?? 1;
+
         if (input.role === "custom" && input.permissionIds) {
           await db.createCustomUser({
             name: input.name.trim(),
@@ -144,6 +188,8 @@ export const appRouter = router({
             passwordHash: pwdHash,
             role: "custom",
             permissionIds: input.permissionIds,
+            organizationId: targetOrgId,
+            orgRole: "agent",
           });
         } else {
           await db.upsertUser({
@@ -153,6 +199,13 @@ export const appRouter = router({
             passwordHash: pwdHash,
             role: input.role,
             lastSignedIn: new Date(),
+          });
+          // Vincular como miembro de la org objetivo
+          await db.addMemberToOrganization({
+            organizationId: targetOrgId,
+            userId: (await db.getUserByEmail(input.email.toLowerCase().trim()))!
+              .id,
+            orgRole: "agent",
           });
         }
 
@@ -165,6 +218,9 @@ export const appRouter = router({
   pipeline: pipelineRouter,
   pipelines: pipelinesRouter,
   permissions: permissionsRouter,
+  organizations: organizationsRouter,
+  dialing: dialingRouter,
+  phoneLists: phoneListsRouter,
 });
 
 export type AppRouter = typeof appRouter;

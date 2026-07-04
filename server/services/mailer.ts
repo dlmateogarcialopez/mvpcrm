@@ -1,5 +1,9 @@
 import { Resend } from "resend";
 import nodemailer from "nodemailer";
+import {
+  resolveEmailConfig,
+  type OrgIntegrations,
+} from "../_core/orgIntegrations";
 
 export type MailOptions = {
   to: string | string[];
@@ -9,35 +13,60 @@ export type MailOptions = {
   from?: string;
 };
 
-export async function sendMail(options: MailOptions): Promise<boolean> {
-  const provider = (process.env.EMAIL_PROVIDER || "resend").toLowerCase().trim();
+/**
+ * Envía un email.
+ *
+ * Si se pasa `orgIntegrations`, usa la config de email de
+ * la org (provider, api key, from, smtp). Si no, cae al
+ * env var (backward compatible).
+ *
+ * El caller puede override el `from` pasando `options.from`
+ * explícitamente.
+ */
+export async function sendMail(
+  options: MailOptions,
+  orgIntegrations?: OrgIntegrations | null
+): Promise<boolean> {
   const recipients = Array.isArray(options.to) ? options.to : [options.to];
+  const emailConfig = orgIntegrations
+    ? resolveEmailConfig(orgIntegrations)
+    : null;
+  const provider = emailConfig?.provider ??
+    ((process.env.EMAIL_PROVIDER || "resend").toLowerCase().trim() as
+      | "smtp"
+      | "resend");
+  const from = options.from ?? emailConfig?.from ?? null;
 
   if (provider.startsWith("smt")) {
-    const host = process.env.SMTP_HOST || "smtp.gmail.com";
-    const port = parseInt(process.env.SMTP_PORT || "465");
-    const user = process.env.SMTP_USER || "sportsinsights92@gmail.com";
-    const pass = process.env.SMTP_PASS || "ubyn kcbk mqnv hxti";
-    const from = options.from || process.env.EMAIL_FROM || user;
+    const smtp = emailConfig?.smtp ?? null;
+    const host = smtp?.host ?? process.env.SMTP_HOST ?? "smtp.gmail.com";
+    const port =
+      smtp?.port ?? parseInt(process.env.SMTP_PORT ?? "465", 10);
+    const user = smtp?.user ?? process.env.SMTP_USER ?? "";
+    const pass = smtp?.pass ?? process.env.SMTP_PASS ?? "";
+    const finalFrom = from ?? user;
+    if (!user || !pass) {
+      console.warn(
+        "[Mailer] SMTP credentials no configuradas. Email no enviado."
+      );
+      return false;
+    }
 
-    console.log(`[Mailer] Enviando correo vía SMTP (${host}:${port}) a: ${recipients.join(", ")}`);
+    console.log(
+      `[Mailer] Enviando correo vía SMTP (${host}:${port}) a: ${recipients.join(", ")}`
+    );
 
     try {
       const transporter = nodemailer.createTransport({
         host,
         port,
-        secure: port === 465, // true para puerto 465 (SSL), false para otros (STARTTLS)
-        auth: {
-          user,
-          pass,
-        },
-        tls: {
-          rejectUnauthorized: false, // Permite certificados auto-firmados o sin validación de hostname
-        },
+        secure: port === 465,
+        auth: { user, pass },
+        tls: { rejectUnauthorized: false },
       });
 
       await transporter.sendMail({
-        from,
+        from: finalFrom,
         to: recipients.join(", "),
         subject: options.subject,
         text: options.text,
@@ -51,25 +80,33 @@ export async function sendMail(options: MailOptions): Promise<boolean> {
       return false;
     }
   } else {
-    const resendKey = process.env.RESEND_API_KEY;
-    const from = options.from || process.env.EMAIL_FROM || "onboarding@resend.dev";
+    const resendKey =
+      emailConfig?.resendApiKey ?? process.env.RESEND_API_KEY ?? "";
+    const finalFrom =
+      from ?? process.env.EMAIL_FROM ?? "onboarding@resend.dev";
 
     if (!resendKey) {
       // Modo simulación si no hay API key
-      console.log(`[SIMULACIÓN ENVIADA - Mailer] De: ${from} | Para: ${recipients.join(", ")} | Asunto: ${options.subject}`);
+      console.log(
+        `[SIMULACIÓN ENVIADA - Mailer] De: ${finalFrom} | Para: ${recipients.join(", ")} | Asunto: ${options.subject}`
+      );
       return true;
     }
 
-    console.log(`[Mailer] Enviando correo vía Resend a: ${recipients.join(", ")}`);
+    console.log(
+      `[Mailer] Enviando correo vía Resend a: ${recipients.join(", ")}`
+    );
 
     try {
       const resend = new Resend(resendKey);
       const { error } = await resend.emails.send({
-        from,
+        from: finalFrom,
         to: recipients,
         subject: options.subject,
         text: options.text,
-        html: options.html || `<div style="font-family: Arial, sans-serif; color: #111827; line-height: 1.6; font-size: 15px;">${options.text.replace(/\n/g, "<br>")}</div>`,
+        html:
+          options.html ||
+          `<div style="font-family: Arial, sans-serif; color: #111827; line-height: 1.6; font-size: 15px;">${options.text.replace(/\n/g, "<br>")}</div>`,
       });
 
       if (error) {

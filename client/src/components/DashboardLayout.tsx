@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
+import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -27,6 +28,7 @@ import {
   FileSpreadsheet,
   LogOut,
   PanelLeft,
+  PhoneCall,
   Settings2,
   Zap,
   Mail,
@@ -88,6 +90,12 @@ const menuItems = [
     label: "Email Marketing",
     path: "/email-marketing",
     description: "Campañas de email",
+  },
+  {
+    icon: PhoneCall,
+    label: "Marcación",
+    path: "/dialer",
+    description: "VoIP, SMS y grabaciones",
   },
   {
     icon: Settings2,
@@ -250,7 +258,7 @@ function DashboardLayoutContent({
           className="border-r border-sidebar-border/70 bg-sidebar"
           disableTransition={isResizing}
         >
-          <SidebarHeader className="h-16 justify-center border-b border-sidebar-border/70 px-3">
+          <SidebarHeader className="h-auto flex-col gap-3 border-b border-sidebar-border/70 px-3 py-3">
             <div className="flex items-center gap-3 transition-all w-full">
               <button
                 onClick={toggleSidebar}
@@ -270,6 +278,7 @@ function DashboardLayoutContent({
                 </div>
               ) : null}
             </div>
+            <OrgSwitcher />
           </SidebarHeader>
 
           <SidebarContent className="gap-0 px-2 py-4">

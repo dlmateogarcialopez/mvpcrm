@@ -1,22 +1,68 @@
 import type { Lead, AutomationRule } from "../../drizzle/schema";
 import * as db from "../db";
+import {
+  getOrgIntegrations,
+  type OrgIntegrations,
+} from "../_core/orgIntegrations";
 import { sendLeadOperationalAlert } from "./alerts";
 import { syncLeadCalendarEvent } from "./calendar";
-import {
-  sendTelegramAlert,
-  sendTelegramAlertToAgent,
-} from "./telegram.service";
+import { sendTelegramAlertToAgent } from "./telegram.service";
 import { sendMail } from "./mailer";
 
 /**
  * Motor de automatización principal.
  * Ejecuta tanto las automatizaciones fijas (Calendario, Alertas) como las reglas visuales personalizadas.
+ *
+ * `organizationId` permite resolver las integraciones de la
+ * org activa. Si no se pasa, se cae al legacy global
+ * (appSettings) — backward compatible.
  */
-export async function runLeadAutomation(lead: Lead, updatedByUserId: number) {
-  const settings = await db.getAppSettings();
+export type LeadAutomationTriggerEvent =
+  | "lead_created"
+  | "lead_updated"
+  | "status_changed"
+  | "manual_run"
+  | "import";
+
+/**
+ * Triggers que son dependientes de tiempo (proxima_a_vencer, gestion_vencida).
+ * Solo deben dispararse en "manual_run" o cuando un cron los evalúa
+ * explícitamente. NO en updates del lead (cambio de fase, edición, etc.)
+ * porque el lead puede seguir cumpliendo la condición de tiempo aunque no haya
+ * ocurrido ningún evento relevante para el usuario.
+ */
+const TIME_BASED_TRIGGERS = new Set(["proxima_a_vencer", "gestion_vencida"]);
+
+/**
+ * Triggers que solo deben dispararse cuando el estado del lead cambia
+ * (status_changed), NO en cada edición (lead_updated).
+ * Ej: "opportunity_won" dispara cada vez que se edita un lead ganado,
+ * lo cual genera spam de notificaciones. Debe limitarse a transiciones
+ * reales de estado.
+ */
+const STATE_CHANGE_TRIGGERS = new Set([
+  "opportunity_won",
+  "opportunity_lost",
+  "opportunity_proposal_sent",
+]);
+
+export async function runLeadAutomation(
+  lead: Lead,
+  updatedByUserId: number,
+  organizationId?: number | null,
+  triggerEvent: LeadAutomationTriggerEvent = "lead_updated"
+) {
+  const orgIntegrations = organizationId
+    ? await getOrgIntegrations(organizationId)
+    : null;
+  // Para campos legacy (ej. externalCalendarId del record), usamos
+  // lo que tengamos disponible. Como ya no leemos appSettings,
+  // usamos el calendarId resuelto de la org.
+  const calendarIdForRecord =
+    orgIntegrations?.googleCalendar.calendarId ?? null;
 
   // 1. Automatizaciones Fijas (Calendario y Alertas Operativas)
-  const calendar = await syncLeadCalendarEvent(lead, settings);
+  const calendar = await syncLeadCalendarEvent(lead, orgIntegrations);
   await db.updateLeadCalendarState({
     leadId: lead.id,
     eventId: calendar.eventId ?? lead.calendarEventId,
@@ -33,7 +79,7 @@ export async function runLeadAutomation(lead: Lead, updatedByUserId: number) {
 
   await db.recordCalendarSync({
     leadId: lead.id,
-    externalCalendarId: settings.googleCalendarId ?? null,
+    externalCalendarId: calendarIdForRecord,
     externalEventId: calendar.eventId ?? lead.calendarEventId,
     syncAction: calendar.action,
     syncStatus: calendar.status === "error" ? "error" : "success",
@@ -42,7 +88,7 @@ export async function runLeadAutomation(lead: Lead, updatedByUserId: number) {
     triggeredByUserId: updatedByUserId,
   });
 
-  const alert = await sendLeadOperationalAlert(lead, settings);
+  const alert = await sendLeadOperationalAlert(lead, orgIntegrations);
   if (alert.status === "sent") {
     await db.recordLeadAlertDelivery({
       leadId: lead.id,
@@ -55,7 +101,9 @@ export async function runLeadAutomation(lead: Lead, updatedByUserId: number) {
   // 2. Motor de Reglas Visuales Personalizadas
   const customAutomationResults = await processCustomAutomationRules(
     lead,
-    updatedByUserId
+    updatedByUserId,
+    orgIntegrations,
+    triggerEvent
   );
 
   return {
@@ -68,16 +116,54 @@ export async function runLeadAutomation(lead: Lead, updatedByUserId: number) {
 /**
  * Procesa las reglas de automatización creadas visualmente por el usuario.
  */
-async function processCustomAutomationRules(lead: Lead, userId: number) {
+
+async function processCustomAutomationRules(
+  lead: Lead,
+  userId: number,
+  orgIntegrations: OrgIntegrations | null,
+  triggerEvent: LeadAutomationTriggerEvent
+) {
   try {
-    const rules = await db.getActiveAutomationRules();
+    // Solo reglas de la org activa (antes era global: reglas de la
+    // org A se disparaban para leads de la org B).
+    const rules = await db.getActiveAutomationRules(lead.organizationId ?? 1);
     const results = [];
 
     for (const rule of rules) {
+      // Reglas basadas en tiempo solo se ejecutan en "manual_run" o en
+      // un cron explícito. No se disparan en updates/edit/moveStage.
+      if (
+        TIME_BASED_TRIGGERS.has(rule.trigger) &&
+        triggerEvent !== "manual_run" &&
+        triggerEvent !== "import"
+      ) {
+        continue;
+      }
+      // Reglas de cambio de estado (opportunity_won, opportunity_lost,
+      // opportunity_proposal_sent) solo se disparan en cambios reales de
+      // estado, no en cada edición del lead.
+      if (
+        STATE_CHANGE_TRIGGERS.has(rule.trigger) &&
+        triggerEvent !== "status_changed" &&
+        triggerEvent !== "manual_run"
+      ) {
+        continue;
+      }
       if (shouldTriggerRule(rule, lead)) {
-        const result = await executeRuleAction(rule, lead, userId);
+        const result = await executeRuleAction(
+          rule,
+          lead,
+          userId,
+          orgIntegrations
+        );
         results.push(result);
         await db.incrementRuleExecution(rule.id);
+        if (rule.trigger === "after_visit") {
+          await db.markLeadAfterVisitFired(lead.id);
+          console.log(
+            `[Automation] Marcado lead ${lead.publicId} como after_visit ejecutado.`
+          );
+        }
       }
     }
 
@@ -90,7 +176,6 @@ async function processCustomAutomationRules(lead: Lead, userId: number) {
     return [];
   }
 }
-
 /**
  * Determina si una regla debe dispararse para un lead específico.
  * El objeto `lead` puede ser un Lead crudo o un LeadListItem enriquecido
@@ -107,14 +192,29 @@ export function shouldTriggerRule(
       return ageMs < 30000;
     }
     case "status_changed": {
-      if (
-        !rule.triggerCondition ||
-        rule.triggerCondition === "" ||
-        rule.triggerCondition === "todos"
-      ) {
+      const cond = rule.triggerCondition;
+      // Empty / "todos" / undefined → fires on any state change
+      if (!cond || cond === "" || cond === "todos") {
         return true;
       }
-      return lead.estadoLead === rule.triggerCondition;
+      // Backward compat: legacy string format = exact match against estadoLead
+      if (typeof cond === "string" && !cond.trim().startsWith("{")) {
+        return lead.estadoLead === cond;
+      }
+      // New format: JSON with pipelineId and stageNames
+      try {
+        const parsed = typeof cond === "string" ? JSON.parse(cond) : cond;
+        if (
+          parsed &&
+          Array.isArray(parsed.stageNames) &&
+          parsed.stageNames.length > 0
+        ) {
+          return parsed.stageNames.includes(lead.estadoLead);
+        }
+        return true;
+      } catch {
+        return lead.estadoLead === cond;
+      }
     }
     case "label_added": {
       if (!rule.triggerCondition) return false;
@@ -147,6 +247,7 @@ export function shouldTriggerRule(
       if (typeof lead.isClosed === "boolean" && lead.isClosed) return false;
       if (["ganado", "perdido"].includes(lead.estadoLead)) return false;
       if (!lead.fechaVisita) return false;
+      if ((lead as any).firedAfterVisitAt) return false; // ya disparado antes
       return lead.fechaVisita < Date.now();
     default:
       return false;
@@ -216,7 +317,9 @@ export async function resolveLeadKind(
   lead: Lead
 ): Promise<"open" | "won" | "lost" | "paused"> {
   try {
-    const defaultPipeline = await db.getDefaultPipeline();
+    const defaultPipeline = await db.getDefaultPipeline(
+      lead.organizationId ?? 1
+    );
     if (defaultPipeline) {
       const stage = await db.getPipelineStageByName(
         defaultPipeline.id,
@@ -237,7 +340,12 @@ export async function resolveLeadKind(
 /**
  * Ejecuta la acción definida en la regla.
  */
-export async function executeRuleAction(rule: any, lead: Lead, userId: number) {
+export async function executeRuleAction(
+  rule: any,
+  lead: Lead,
+  userId: number,
+  orgIntegrations: OrgIntegrations | null
+) {
   console.log(
     `[Automation] Ejecutando acción ${rule.action} para lead ${lead.publicId} (trigger=${rule.trigger})`
   );
@@ -277,34 +385,6 @@ export async function executeRuleAction(rule: any, lead: Lead, userId: number) {
       };
     }
 
-    case "send_telegram": {
-      let alertType: "new_lead" | "urgent_lead" | "lead_closed" | "lead_lost" =
-        "urgent_lead";
-      if (rule.trigger === "lead_created") {
-        alertType = "new_lead";
-      } else if (lead.estadoLead === "ganado") {
-        alertType = "lead_closed";
-      } else if (lead.estadoLead === "perdido") {
-        alertType = "lead_lost";
-      }
-
-      try {
-        const telegramContext = await buildTelegramContext(lead, userId, rule);
-        await sendTelegramAlert(alertType, telegramContext);
-        return { action: "send_telegram", status: "sent" };
-      } catch (error) {
-        console.error(
-          `[Automation] Error Telegram para ${lead.publicId}:`,
-          error
-        );
-        return {
-          action: "send_telegram",
-          status: "error",
-          reason: error instanceof Error ? error.message : "unknown",
-        };
-      }
-    }
-
     case "send_email": {
       const payload = parseEmailActionData(rule.actionData);
       const recipient = await resolveEmailRecipient(payload.recipient, lead);
@@ -325,12 +405,15 @@ export async function executeRuleAction(rule: any, lead: Lead, userId: number) {
         (rule.trigger === "after_visit"
           ? buildDefaultPostVisitEmailBody(lead)
           : buildDefaultOverdueEmailBody(lead));
-      const ok = await sendMail({
-        to: recipient,
-        subject,
-        text: body,
-        html: body.replace(/\n/g, "<br>"),
-      });
+      const ok = await sendMail(
+        {
+          to: recipient,
+          subject,
+          text: body,
+          html: body.replace(/\n/g, "<br>"),
+        },
+        orgIntegrations
+      );
       await db.recordAutomationEmail(lead.id, recipient, subject, ok, userId);
       return { action: "send_email", status: ok ? "sent" : "error" };
     }
@@ -392,82 +475,149 @@ export async function executeRuleAction(rule: any, lead: Lead, userId: number) {
     }
 
     case "send_telegram_to_user": {
-      const recipient = await resolveRecipient(rule.actionData, lead);
-      if (!recipient?.telegramChatId) {
+      const recipients = await resolveRecipient(rule.actionData, lead);
+      if (recipients.length === 0) {
         return {
           action: "send_telegram_to_user",
           status: "skipped",
-          reason: recipient
-            ? "El destinatario no tiene chatId de Telegram configurado."
-            : "No fue posible resolver el destinatario.",
+          reason: "No fue posible resolver los destinatarios.",
         };
       }
       const alertType = pickTelegramAlertType(lead);
-      try {
-        const telegramContext = await buildTelegramContext(lead, userId, rule);
-        await sendTelegramAlertToAgent(
-          recipient.telegramChatId,
-          alertType,
-          telegramContext
-        );
-        await db.recordAutomationEmail(
-          lead.id,
-          recipient.telegramChatId,
-          `Telegram a ${recipient.name}`,
-          true,
-          userId
-        );
-        return {
-          action: "send_telegram_to_user",
-          status: "sent",
-          recipientId: recipient.id,
-          recipientName: recipient.name,
-        };
-      } catch (error) {
-        console.error(
-          `[Automation] Error Telegram a usuario ${recipient.telegramChatId}:`,
-          error
-        );
-        return {
-          action: "send_telegram_to_user",
-          status: "error",
-          recipientId: recipient.id,
-          reason: error instanceof Error ? error.message : "unknown",
-        };
+      const telegramContext = await buildTelegramContext(lead, userId, rule);
+      const sentTo: Array<{
+        name: string;
+        chatId: string;
+        ok: boolean;
+        error?: string;
+      }> = [];
+
+      for (const recipient of recipients) {
+        if (!recipient.telegramChatId) {
+          sentTo.push({
+            name: recipient.name,
+            chatId: "",
+            ok: false,
+            error: "sin chatId",
+          });
+          continue;
+        }
+        try {
+          await sendTelegramAlertToAgent(
+            recipient.telegramChatId,
+            alertType,
+            telegramContext,
+            orgIntegrations
+          );
+          await db.recordAutomationEmail(
+            lead.id,
+            recipient.telegramChatId,
+            `Telegram a ${recipient.name}`,
+            true,
+            userId
+          );
+          sentTo.push({
+            name: recipient.name,
+            chatId: recipient.telegramChatId,
+            ok: true,
+          });
+        } catch (error) {
+          console.error(
+            `[Automation] Error Telegram a usuario ${recipient.telegramChatId}:`,
+            error
+          );
+          await db.recordAutomationEmail(
+            lead.id,
+            recipient.telegramChatId,
+            `Telegram a ${recipient.name}`,
+            false,
+            userId
+          );
+          sentTo.push({
+            name: recipient.name,
+            chatId: recipient.telegramChatId,
+            ok: false,
+            error: error instanceof Error ? error.message : "unknown",
+          });
+        }
       }
+
+      const successCount = sentTo.filter(r => r.ok).length;
+      const totalCount = sentTo.length;
+      const allOk = successCount === totalCount;
+
+      return {
+        action: "send_telegram_to_user",
+        status: allOk ? "sent" : successCount > 0 ? "partial" : "error",
+        recipients: sentTo,
+        summary: `${successCount}/${totalCount} enviados`,
+      };
     }
 
     case "send_email_to_user": {
-      const recipient = await resolveRecipient(rule.actionData, lead);
-      if (!recipient?.email) {
+      const recipients = await resolveRecipient(rule.actionData, lead);
+      if (recipients.length === 0) {
         return {
           action: "send_email_to_user",
           status: "skipped",
-          reason: recipient
-            ? "El destinatario no tiene email configurado."
-            : "No fue posible resolver el destinatario.",
+          reason: "No fue posible resolver los destinatarios.",
         };
       }
       const subject = `Notificación: ${lead.nombreCliente} → ${lead.estadoLead.toUpperCase()}`;
-      const body = buildStateChangeEmailBody(lead, recipient.name);
-      const ok = await sendMail({
-        to: recipient.email,
-        subject,
-        text: body,
-        html: body.replace(/\n/g, "<br>"),
-      });
-      await db.recordAutomationEmail(
-        lead.id,
-        recipient.email,
-        subject,
-        ok,
-        userId
+      const body = buildStateChangeEmailBody(
+        lead,
+        recipients.map(r => r.name).join(", ")
       );
+      const sentTo: Array<{
+        name: string;
+        email: string;
+        ok: boolean;
+        error?: string;
+      }> = [];
+
+      for (const recipient of recipients) {
+        if (!recipient.email) {
+          sentTo.push({
+            name: recipient.name,
+            email: "",
+            ok: false,
+            error: "sin email",
+          });
+          continue;
+        }
+        const ok = await sendMail(
+          {
+            to: recipient.email,
+            subject,
+            text: body,
+            html: body.replace(/\n/g, "<br>"),
+          },
+          orgIntegrations
+        );
+        await db.recordAutomationEmail(
+          lead.id,
+          recipient.email,
+          subject,
+          ok,
+          userId
+        );
+        sentTo.push({
+          name: recipient.name,
+          email: recipient.email,
+          ok,
+          error: ok ? undefined : "envío falló",
+        });
+      }
+
+      const successCount = sentTo.filter(r => r.ok).length;
+      const totalCount = sentTo.length;
+      const allOk = successCount === totalCount;
+
       return {
         action: "send_email_to_user",
-        status: ok ? "sent" : "error",
-        recipientId: recipient.id,
-        recipientName: recipient.name,
+        status: allOk ? "sent" : successCount > 0 ? "partial" : "error",
+        recipients: sentTo,
+        summary: `${successCount}/${totalCount} enviados`,
       };
     }
 
@@ -523,8 +673,11 @@ function parseEmailActionData(raw: string | null | undefined): {
 }
 
 function buildDefaultOverdueEmailBody(lead: Lead): string {
+  const tz = process.env.ORG_TIMEZONE || "America/Bogota";
   const fechaLimite = lead.fechaLimiteGestion
-    ? new Date(lead.fechaLimiteGestion).toLocaleString("es-CO")
+    ? new Date(lead.fechaLimiteGestion).toLocaleString("es-CO", {
+        timeZone: tz,
+      })
     : "Sin fecha límite";
   return [
     `Hola,`,
@@ -617,43 +770,105 @@ async function resolveEmailRecipient(
 async function resolveRecipient(
   actionData: string | null | undefined,
   _lead: Lead
-): Promise<{
-  id: number | null;
-  name: string;
-  telegramChatId: string | null;
-  email: string | null;
-} | null> {
+): Promise<
+  Array<{
+    id: number | null;
+    name: string;
+    telegramChatId: string | null;
+    email: string | null;
+  }>
+> {
   const raw = (actionData || "").trim();
-  if (!raw) return null;
+  if (!raw) return [];
 
   // Formato JSON
   if (raw.startsWith("{")) {
     try {
       const parsed = JSON.parse(raw);
+
+      // Nuevo formato: array de userIds { userIds: [1, 2, 3] }
+      if (Array.isArray(parsed?.userIds) && parsed.userIds.length > 0) {
+        const results = [];
+        for (const userId of parsed.userIds) {
+          const user = await db.getUserById(Number(userId));
+          if (user && user.telegramChatId) {
+            results.push({
+              id: user.id,
+              name: user.name || user.email || "Usuario",
+              telegramChatId: user.telegramChatId,
+              email: user.email ?? null,
+            });
+          }
+        }
+        if (results.length > 0) return results;
+      }
+
+      // Nuevo formato: array de recipientIds { recipientIds: [1, 2] }
+      if (
+        Array.isArray(parsed?.recipientIds) &&
+        parsed.recipientIds.length > 0
+      ) {
+        const results = [];
+        for (const rId of parsed.recipientIds) {
+          const r = await db.getAutomationRecipient(Number(rId));
+          if (r && r.isActive) {
+            results.push({
+              id: r.id,
+              name: r.name,
+              telegramChatId: r.telegramChatId ?? null,
+              email: r.email ?? null,
+            });
+          }
+        }
+        if (results.length > 0) return results;
+      }
+
+      // Formato legacy: userId único
+      if (parsed.userId) {
+        const user = await db.getUserById(Number(parsed.userId));
+        if (user && user.telegramChatId) {
+          return [
+            {
+              id: user.id,
+              name: user.name || user.email || "Usuario",
+              telegramChatId: user.telegramChatId,
+              email: user.email ?? null,
+            },
+          ];
+        }
+        return [];
+      }
+
+      // Formato legacy: recipientId único
       if (parsed.recipientId) {
         const r = await db.getAutomationRecipient(Number(parsed.recipientId));
         if (r && r.isActive) {
-          return {
-            id: r.id,
-            name: r.name,
-            telegramChatId: r.telegramChatId ?? null,
-            email: r.email ?? null,
-          };
+          return [
+            {
+              id: r.id,
+              name: r.name,
+              telegramChatId: r.telegramChatId ?? null,
+              email: r.email ?? null,
+            },
+          ];
         }
-        return null;
+        return [];
       }
+
       if (parsed.name || parsed.telegramChatId || parsed.email) {
-        return {
-          id: null,
-          name: String(parsed.name ?? "Destinatario inline"),
-          telegramChatId: parsed.telegramChatId
-            ? String(parsed.telegramChatId)
-            : null,
-          email: parsed.email ? String(parsed.email) : null,
-        };
+        return [
+          {
+            id: null,
+            name: String(parsed.name ?? "Destinatario inline"),
+            telegramChatId: parsed.telegramChatId
+              ? String(parsed.telegramChatId)
+              : null,
+            email: parsed.email ? String(parsed.email) : null,
+          },
+        ];
       }
     } catch {
-      return null;
+      return [];
     }
   }
 
@@ -662,17 +877,19 @@ async function resolveRecipient(
   if (idx > 0) {
     const name = raw.slice(0, idx).trim() || "Destinatario";
     const value = raw.slice(idx + 1).trim();
-    if (!value) return null;
+    if (!value) return [];
     const looksLikeEmail = value.includes("@");
-    return {
-      id: null,
-      name,
-      telegramChatId: looksLikeEmail ? null : value,
-      email: looksLikeEmail ? value : null,
-    };
+    return [
+      {
+        id: null,
+        name,
+        telegramChatId: looksLikeEmail ? null : value,
+        email: looksLikeEmail ? value : null,
+      },
+    ];
   }
 
-  return null;
+  return [];
 }
 
 /**
@@ -770,8 +987,11 @@ async function buildTelegramContext(
  * Cuerpo de email estándar para notificaciones de cambio de estado del embudo.
  */
 function buildStateChangeEmailBody(lead: Lead, recipientName: string): string {
+  const tz = process.env.ORG_TIMEZONE || "America/Bogota";
   const fechaLimite = lead.fechaLimiteGestion
-    ? new Date(lead.fechaLimiteGestion).toLocaleString("es-CO")
+    ? new Date(lead.fechaLimiteGestion).toLocaleString("es-CO", {
+        timeZone: tz,
+      })
     : "Sin fecha límite";
   return [
     `Hola ${recipientName},`,
@@ -791,12 +1011,13 @@ function buildStateChangeEmailBody(lead: Lead, recipientName: string): string {
  * Se usa cuando el usuario no escribe un mensaje personalizado en actionData.
  */
 function buildDefaultPostVisitEmailBody(lead: Lead): string {
+  const tz = process.env.ORG_TIMEZONE || "America/Bogota";
   const fechaVisita = lead.fechaVisita
     ? new Date(
         typeof lead.fechaVisita === "number"
           ? lead.fechaVisita
           : (lead.fechaVisita as any)
-      ).toLocaleString("es-CO")
+      ).toLocaleString("es-CO", { timeZone: tz })
     : "Sin fecha";
   return [
     `Hola ${lead.nombreCliente},`,

@@ -16,6 +16,34 @@ export const appRoleLabels: Record<AppRole, string> = {
   custom: "Personalizado",
 };
 
+export const orgRoleValues = ["owner", "admin", "agent", "viewer"] as const;
+export type OrgRole = (typeof orgRoleValues)[number];
+
+export const orgRoleLabels: Record<OrgRole, string> = {
+  owner: "Propietario",
+  admin: "Administrador",
+  agent: "Agente",
+  viewer: "Visualizador",
+};
+
+export const orgStatusValues = ["active", "paused", "archived"] as const;
+export type OrgStatus = (typeof orgStatusValues)[number];
+
+export const orgMemberStatusValues = [
+  "active",
+  "invited",
+  "suspended",
+] as const;
+export type OrgMemberStatus = (typeof orgMemberStatusValues)[number];
+
+export const invitationStatusValues = [
+  "pending",
+  "accepted",
+  "expired",
+  "revoked",
+] as const;
+export type InvitationStatus = (typeof invitationStatusValues)[number];
+
 export const leadStatusValues = [
   "nuevo",
   "contactado",

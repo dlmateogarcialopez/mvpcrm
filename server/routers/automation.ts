@@ -35,126 +35,57 @@ export const automationRouter = router({
   // Las semillas se aplican vía migración 0010_multiple_pipelines.sql.
 
   // Labels
-  listLabels: protectedProcedure.query(async () => {
-    const labels = await db.listCustomLabels();
+  listLabels: protectedProcedure.query(async ({ ctx }) => {
+    const orgId = ctx.activeOrganizationId;
+    if (!orgId) return []; // sin org activa: nada que mostrar
+    const labels = await db.listCustomLabels(orgId);
     if (labels.length === 0) {
+      // Sembrar defaults de la org (no globales)
       await db.createCustomLabel({
+        organizationId: orgId,
         name: "VIP",
         color: "#d97706",
         description: "Clientes muy importantes",
       });
       await db.createCustomLabel({
+        organizationId: orgId,
         name: "Frecuente",
         color: "#2563eb",
         description: "Clientes recurrentes",
       });
       await db.createCustomLabel({
+        organizationId: orgId,
         name: "Nuevo Evento",
         color: "#16a34a",
         description: "Oportunidad reciente",
       });
-      return db.listCustomLabels();
+      return db.listCustomLabels(orgId);
     }
     return labels;
   }),
 
-  createLabel: protectedProcedure.input(z.any()).mutation(async ({ input }) => {
-    return db.createCustomLabel(input);
-  }),
+  createLabel: protectedProcedure
+    .input(z.any())
+    .mutation(async ({ ctx, input }) => {
+      // Forzar organizationId al de la org activa (no aceptar el del cliente)
+      return db.createCustomLabel({
+        ...input,
+        organizationId: ctx.activeOrganizationId ?? 1,
+      });
+    }),
 
   // Channels
-  listChannels: protectedProcedure.query(async () => {
-    return db.listCustomChannels();
+  listChannels: protectedProcedure.query(async ({ ctx }) => {
+    const orgId = ctx.activeOrganizationId;
+    if (!orgId) return [];
+    return db.listCustomChannels(orgId);
   }),
 
   // Automation Rules
-  listRules: protectedProcedure.query(async () => {
-    const rules = await db.listAutomationRules();
-    if (rules.length === 0) {
-      await db.createAutomationRule({
-        name: "Asignar leads nuevos",
-        trigger: "lead_created",
-        triggerCondition: "",
-        action: "assign_agent",
-        actionData: "",
-        isActive: true,
-        executionCount: 45,
-      });
-      await db.createAutomationRule({
-        name: "Alerta para leads urgentes",
-        trigger: "status_changed",
-        triggerCondition: "",
-        action: "send_telegram",
-        actionData: "",
-        isActive: true,
-        executionCount: 12,
-      });
-      await db.createAutomationRule({
-        name: "Alerta Telegram por gestión vencida",
-        trigger: "gestion_vencida",
-        triggerCondition: "",
-        action: "send_telegram",
-        actionData: "",
-        isActive: true,
-        executionCount: 0,
-      });
-      await db.createAutomationRule({
-        name: "Etiquetar leads con gestión vencida",
-        trigger: "gestion_vencida",
-        triggerCondition: "",
-        action: "add_label",
-        actionData: "gestion vencida",
-        isActive: true,
-        executionCount: 0,
-      });
-      await db.createAutomationRule({
-        name: "Alerta Telegram: próximo a vencer",
-        trigger: "proxima_a_vencer",
-        triggerCondition: "3",
-        action: "send_telegram",
-        actionData: "",
-        isActive: true,
-        executionCount: 0,
-      });
-      await db.createAutomationRule({
-        name: "Etiquetar leads próximos a vencer",
-        trigger: "proxima_a_vencer",
-        triggerCondition: "3",
-        action: "add_label",
-        actionData: "Próximo a vencer",
-        isActive: true,
-        executionCount: 0,
-      });
-      await db.createAutomationRule({
-        name: "Notificar oportunidad ganada",
-        trigger: "opportunity_won",
-        triggerCondition: "",
-        action: "send_email_to_user",
-        actionData: "",
-        isActive: true,
-        executionCount: 0,
-      });
-      await db.createAutomationRule({
-        name: "Notificar oportunidad perdida",
-        trigger: "opportunity_lost",
-        triggerCondition: "",
-        action: "send_email_to_user",
-        actionData: "",
-        isActive: true,
-        executionCount: 0,
-      });
-      await db.createAutomationRule({
-        name: "Notificar propuesta enviada",
-        trigger: "opportunity_proposal_sent",
-        triggerCondition: "",
-        action: "send_email_to_user",
-        actionData: "",
-        isActive: true,
-        executionCount: 0,
-      });
-      return db.listAutomationRules();
-    }
-    return rules;
+  listRules: protectedProcedure.query(async ({ ctx }) => {
+    const orgId = ctx.activeOrganizationId;
+    if (!orgId) return []; // sin org activa
+    return db.listAutomationRules(orgId);
   }),
 
   createRule: protectedProcedure
@@ -167,7 +98,11 @@ export const automationRouter = router({
       ) {
         requireSuperadmin(ctx);
       }
-      return db.createAutomationRule(input);
+      // Forzar organizationId al de la org activa
+      return db.createAutomationRule({
+        ...input,
+        organizationId: ctx.activeOrganizationId ?? 1,
+      });
     }),
 
   updateRule: protectedProcedure
@@ -201,8 +136,10 @@ export const automationRouter = router({
     }),
 
   // Email Campaigns
-  listCampaigns: protectedProcedure.query(async () => {
-    return db.listEmailCampaigns();
+  listCampaigns: protectedProcedure.query(async ({ ctx }) => {
+    const orgId = ctx.activeOrganizationId;
+    if (!orgId) return [];
+    return db.listEmailCampaigns(orgId);
   }),
 
   createCampaign: protectedProcedure
@@ -215,8 +152,11 @@ export const automationRouter = router({
         targetSegmentData: z.string().optional().nullable(),
       })
     )
-    .mutation(async ({ input }) => {
-      return db.createEmailCampaign(input);
+    .mutation(async ({ ctx, input }) => {
+      return db.createEmailCampaign({
+        ...input,
+        organizationId: ctx.activeOrganizationId ?? 1,
+      });
     }),
 
   updateCampaign: protectedProcedure
@@ -245,7 +185,11 @@ export const automationRouter = router({
   sendCampaign: protectedProcedure
     .input(z.number())
     .mutation(async ({ input, ctx }) => {
-      return executeEmailCampaign(input, ctx.user.id);
+      return executeEmailCampaign(
+        input,
+        ctx.user.id,
+        ctx.activeOrganizationId ?? 1
+      );
     }),
 
   // Ejecuta manualmente TODAS las reglas activas contra los leads vencidos
@@ -253,14 +197,16 @@ export const automationRouter = router({
   // de los triggers gestion_vencida y proxima_a_vencer (y de cualquier otro
   // trigger compatible) desde el panel con un solo clic.
   runActiveRulesManually: protectedProcedure.mutation(async ({ ctx }) => {
+    const orgId = ctx.activeOrganizationId ?? 1;
     const currentUser = {
       id: ctx.user.id,
       role: ctx.user.role,
       name: ctx.user.name,
       email: ctx.user.email,
+      activeOrgId: orgId,
     } as db.CurrentUser;
 
-    const rules = await db.getActiveAutomationRules();
+    const rules = await db.getActiveAutomationRules(orgId);
     const overdueLeads = await db.listOverdueLeadsForUser(currentUser);
 
     // Pool base: leads visibles que están en estados de "oportunidad" ganada/perdida/propuesta.
@@ -320,7 +266,12 @@ export const automationRouter = router({
       for (const lead of Array.from(pool.values())) {
         try {
           if (shouldTriggerRule(rule, lead)) {
-            const outcome = await executeRuleAction(rule, lead, ctx.user.id);
+            const outcome = await executeRuleAction(
+              rule,
+              lead,
+              ctx.user.id,
+              null
+            );
             await db.incrementRuleExecution(rule.id);
             results.push({
               ruleId: rule.id,

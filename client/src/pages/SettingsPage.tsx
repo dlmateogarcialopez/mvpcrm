@@ -31,6 +31,11 @@ import {
 } from "../lib/settings-page.logic";
 import { trpc } from "../lib/trpc";
 import { UserPermissionsEditor } from "../components/UserPermissionsEditor";
+import { OrgBrandingForm } from "../components/OrgBrandingForm";
+import { OrgMembersPanel } from "../components/OrgMembersPanel";
+import { OrgListPanel } from "../components/OrgListPanel";
+import { OrgIntegrationsPanel } from "../components/OrgIntegrationsPanel";
+import { useActiveBrand } from "@/contexts/BrandContext";
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("es-CO", {
@@ -325,6 +330,7 @@ function getThresholdErrors(form: AppSettingsInput): Record<string, string> {
 
 export default function SettingsPage() {
   const utils = trpc.useUtils();
+  const brand = useActiveBrand();
   const settingsQuery = trpc.settings.get.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
@@ -665,6 +671,8 @@ export default function SettingsPage() {
       />
 
       <div className="space-y-6">
+        <OrgBrandingForm />
+        <OrgMembersPanel />
         <section className="rounded-[24px] border bg-card p-6 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -673,7 +681,7 @@ export default function SettingsPage() {
                 Control operativo
               </div>
               <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-                Configuración comercial de Máquina de ventas
+                Configuración de {brand.displayName || brand.organizationName || "tu organización"}
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
                 Ajusta precios, puntajes, meta de ingresos, comisión y
@@ -1244,116 +1252,9 @@ export default function SettingsPage() {
               </div>
             </section>
 
-            <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-              <section className="rounded-2xl border p-4">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  Integraciones opcionales
-                </h2>
-                <div className="mt-4 grid gap-4">
-                  <label className="flex items-center justify-between gap-4 rounded-xl border bg-muted/20 px-4 py-3 text-sm">
-                    <div>
-                      <p className="font-medium">
-                        Sincronización con Google Calendar
-                      </p>
-                      <p className="text-muted-foreground">
-                        Se deja lista para una siguiente activación, sin volver
-                        compleja la arquitectura del MVP.
-                      </p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={form.calendarSyncEnabled}
-                      onChange={event =>
-                        updateField("calendarSyncEnabled", event.target.checked)
-                      }
-                    />
-                  </label>
-                  <label className="grid gap-2 text-sm">
-                    <span className="font-medium">ID del calendario</span>
-                    <input
-                      value={form.googleCalendarId ?? ""}
-                      onChange={event =>
-                        updateField("googleCalendarId", event.target.value)
-                      }
-                      disabled={calendarFieldLocked}
-                      className="h-11 rounded-xl border bg-background px-3 outline-none transition focus:border-primary disabled:cursor-not-allowed disabled:bg-muted/30 disabled:text-muted-foreground"
-                      placeholder="equipo-comercial@group.calendar.google.com"
-                    />
-                    <span className="text-xs text-muted-foreground">
-                      {calendarFieldLocked
-                        ? "Activa la sincronización para habilitar este campo sensible y registrar el calendario operativo."
-                        : "Este ID se usará como destino oficial de la agenda comercial sincronizada."}
-                    </span>
-                  </label>
-                  <label className="flex items-center justify-between gap-4 rounded-xl border bg-muted/20 px-4 py-3 text-sm">
-                    <div>
-                      <p className="font-medium">Alertas por correo</p>
-                      <p className="text-muted-foreground">
-                        Útil para vencimientos, seguimientos pendientes y
-                        oportunidades calientes.
-                      </p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={form.emailAlertsEnabled}
-                      onChange={event =>
-                        updateField("emailAlertsEnabled", event.target.checked)
-                      }
-                    />
-                  </label>
-                  <label className="grid gap-2 text-sm">
-                    <span className="font-medium">Correo de alertas</span>
-                    <input
-                      value={form.alertEmailTo ?? ""}
-                      onChange={event =>
-                        updateField("alertEmailTo", event.target.value)
-                      }
-                      disabled={emailFieldLocked}
-                      className="h-11 rounded-xl border bg-background px-3 outline-none transition focus:border-primary disabled:cursor-not-allowed disabled:bg-muted/30 disabled:text-muted-foreground"
-                      placeholder="operaciones@empresa.com"
-                    />
-                    <span className="text-xs text-muted-foreground">
-                      {emailFieldLocked
-                        ? "Activa alertas por correo para habilitar este destino y evitar configuraciones sensibles a medias."
-                        : "Usa un correo operativo visible para el responsable del seguimiento diario."}
-                    </span>
-                  </label>
-                  <label className="flex items-center justify-between gap-4 rounded-xl border bg-muted/20 px-4 py-3 text-sm">
-                    <div>
-                      <p className="font-medium">Alertas SMS</p>
-                      <p className="text-muted-foreground">
-                        Queda disponible como apoyo operativo, aunque no sea la
-                        prioridad de esta etapa del MVP.
-                      </p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={form.smsAlertsEnabled}
-                      onChange={event =>
-                        updateField("smsAlertsEnabled", event.target.checked)
-                      }
-                    />
-                  </label>
-                  <label className="grid gap-2 text-sm">
-                    <span className="font-medium">Número para SMS</span>
-                    <input
-                      value={form.alertSmsTo ?? ""}
-                      onChange={event =>
-                        updateField("alertSmsTo", event.target.value)
-                      }
-                      disabled={smsFieldLocked}
-                      className="h-11 rounded-xl border bg-background px-3 outline-none transition focus:border-primary disabled:cursor-not-allowed disabled:bg-muted/30 disabled:text-muted-foreground"
-                      placeholder="573001234567"
-                    />
-                    <span className="text-xs text-muted-foreground">
-                      {smsFieldLocked
-                        ? "Activa alertas SMS para habilitar este número y proteger la configuración sensible del canal."
-                        : "Registra un número con formato internacional para respaldar avisos urgentes del equipo."}
-                    </span>
-                  </label>
-                </div>
-              </section>
+            <OrgIntegrationsPanel />
 
+            <div className="grid gap-6">
               <section className="rounded-2xl border p-4">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                   Personalización Visual
@@ -1534,6 +1435,8 @@ export default function SettingsPage() {
             </div>
           </form>
         </section>
+
+        <OrgListPanel />
       </div>
     </>
   );

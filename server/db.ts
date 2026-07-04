@@ -7,6 +7,10 @@ import {
   leadActivities,
   leadCalendarSyncs,
   leads,
+  organizationInvitations,
+  organizationMembers,
+  organizationSettings,
+  organizations,
   settingsChangeLogs,
   users,
   pipelineStages,
@@ -25,6 +29,10 @@ import {
   type InsertAutomationRecipient,
   type Lead,
   type LeadActivity,
+  type Organization,
+  type OrganizationInvitation,
+  type OrganizationMember,
+  type OrganizationSettings,
   type Pipeline,
   type PipelineStage,
   type User,
@@ -61,6 +69,7 @@ import {
   normalizeLeadTravelReason,
   type AppRole,
   type LeadBusinessSettings,
+  type OrgRole,
 } from "../shared/leads";
 import { ENV } from "./_core/env";
 
@@ -71,6 +80,17 @@ export type CurrentUser = {
   role: AppRole;
   name: string | null;
   email: string | null;
+  /**
+   * ID de la org activa del user (de la cookie active_org_id).
+   * Opcional: si no esta presente, las queries que filtran por org
+   * usan un fallback (o el caller pasa el orgId explícito).
+   */
+  activeOrgId?: number | null;
+  /**
+   * Rol del user dentro de la org activa (owner, admin, agent, viewer).
+   * Opcional; necesario para canUserAccessLead.
+   */
+  activeOrgRole?: OrgRole | null;
 };
 
 export type LeadContactBlock = {
@@ -208,7 +228,7 @@ function mergeBusinessSettings(
   };
 }
 
-function enrichLead(row: Lead): LeadListItem {
+export function enrichLead(row: Lead): LeadListItem {
   const now = Date.now();
   const diasHastaVisita = row.fechaVisita
     ? Math.max(0, Math.floor((row.fechaVisita - now) / (1000 * 60 * 60 * 24)))
@@ -219,7 +239,8 @@ function enrichLead(row: Lead): LeadListItem {
   const normalizedStatus = normalizeLeadStatus(row.estadoLead);
   const isClosed = ["ganado", "perdido"].includes(normalizedStatus);
   const isOverdue =
-    !!row.fechaLimiteGestion && row.fechaLimiteGestion < now && !isClosed;
+    (!!row.fechaLimiteGestion && row.fechaLimiteGestion < now) ||
+    (!!row.fechaVisita && row.fechaVisita < now && !isClosed);
 
   return {
     ...row,
@@ -327,15 +348,52 @@ function sortLeadRows(rows: LeadListItem[], filters: LeadFiltersInput) {
   return ordered;
 }
 
-function canUserAccessLead(row: Lead, user: CurrentUser) {
-  if (isManagerRole(user.role)) {
+/**
+ * Determina si un user puede ver/editar un lead considerando su rol
+ * GLOBAL y su rol dentro de la org activa.
+ *
+ * - Si el lead no pertenece a la org activa: NUNCA se ve (aunque el
+ *   user sea admin global). Esto cierra el gap de aislamiento por el
+ *   que un admin global veia leads de otras orgs.
+ * - Admin/owner/superadmin: ven todos los leads de la org activa.
+ * - Agent: solo los leads donde es agente o creador, dentro de la org.
+ * - Guest: solo sus propios leads dentro de la org.
+ */
+function canUserAccessLead(
+  row: Lead,
+  user: CurrentUser,
+  activeOrgRoleOverride?: OrgRole | null
+) {
+  const activeOrgRole =
+    activeOrgRoleOverride !== undefined
+      ? activeOrgRoleOverride
+      : (user.activeOrgRole ?? null);
+
+  // 1) Aislamiento por org: si el lead no es de la org activa del user,
+  // no se ve (excepto para superadmin global que puede ver cross-tenant
+  // via superOrgProcedure; en ese caso activeOrgRole queda null).
+  if (
+    user.activeOrgId !== undefined &&
+    user.activeOrgId !== null &&
+    row.organizationId !== user.activeOrgId
+  ) {
+    return false;
+  }
+
+  // 2) Rol dentro de la org activa
+  if (activeOrgRole === "owner" || activeOrgRole === "admin") {
     return true;
   }
 
-  if (user.role === "guest") {
-    return row.createdByUserId === user.id;
+  // 3) Superadmin global: ve todo (legado) si no tiene orgRole asignado
+  if (isManagerRole(user.role) && !activeOrgRole) {
+    return true;
   }
 
+  // 4) Agent: solo leads asignados o creados por el
+  if (user.role === "guest" || activeOrgRole === "viewer") {
+    return row.createdByUserId === user.id;
+  }
   return row.agenteUserId === user.id || row.createdByUserId === user.id;
 }
 
@@ -420,7 +478,15 @@ async function createLeadActivity(params: {
     throw new Error("Database not available");
   }
 
+  // Inferir organizationId del lead (la actividad hereda la org del lead)
+  const [parentLead] = await db
+    .select({ organizationId: leads.organizationId })
+    .from(leads)
+    .where(eq(leads.id, params.leadId))
+    .limit(1);
+
   await db.insert(leadActivities).values({
+    organizationId: parentLead?.organizationId ?? 1,
     leadId: params.leadId,
     activityType: params.activityType,
     title: params.title,
@@ -454,7 +520,9 @@ function formatLeadAuditValue(
   }
 
   if (kind === "datetime" && typeof value === "number") {
-    return new Date(value).toLocaleString("es-CO");
+    return new Date(value).toLocaleString("es-CO", {
+      timeZone: process.env.ORG_TIMEZONE || "America/Bogota",
+    });
   }
 
   return String(value);
@@ -609,17 +677,46 @@ async function resolveAssignee(params: {
   };
 }
 
-async function listVisibleLeadRows(user: CurrentUser) {
+/**
+ * Trae los leads visibles para el user, restringido a la org activa.
+ * Antes traia TODOS los leads de la DB y filtraba en memoria
+ * (gap critico de rendimiento + aislamiento).
+ *
+ * Usa `user.activeOrgId` y `user.activeOrgRole` si estan presentes;
+ * si no, el caller debe pasarlos como argumentos (compatibilidad).
+ */
+export async function listVisibleLeadRows(
+  user: CurrentUser,
+  organizationIdOverride?: number,
+  activeOrgRoleOverride?: OrgRole | null
+) {
   const db = await getDb();
   if (!db) {
     throw new Error("Database not available");
   }
 
+  const organizationId = organizationIdOverride ?? user.activeOrgId ?? null;
+  const activeOrgRole =
+    activeOrgRoleOverride !== undefined
+      ? activeOrgRoleOverride
+      : (user.activeOrgRole ?? null);
+
+  // Filtro a nivel SQL: solo leads de la org activa (excepto para
+  // superadmin global que puede usar superOrgProcedure).
+  const baseWhere =
+    user.role === "superadmin" && !activeOrgRole
+      ? undefined // sin orgRole -> superadmin cross-tenant, no filtrar
+      : organizationId
+        ? eq(leads.organizationId, organizationId)
+        : eq(leads.organizationId, -1); // safety: nunca matches si no hay orgId
+
   const rows = await db
     .select()
     .from(leads)
+    .where(baseWhere)
     .orderBy(desc(leads.updatedAt), desc(leads.fechaVisita));
-  return rows.filter(row => canUserAccessLead(row, user));
+
+  return rows.filter(row => canUserAccessLead(row, user, activeOrgRole));
 }
 
 function mapLeadToMutableInput(row: Lead): Omit<LeadUpdateInput, "publicId"> {
@@ -1012,11 +1109,18 @@ export async function getLeadByPublicId(publicId: string, user: CurrentUser) {
     throw new Error("Database not available");
   }
 
-  const result = await db
-    .select()
-    .from(leads)
-    .where(eq(leads.publicId, publicId))
-    .limit(1);
+  // Defensa en profundidad: filtrar por org activa del user
+  // para no devolver leads de otra org (incluso si createLead
+  // ya puso el organizationId correcto).
+  const whereClause =
+    user.activeOrgId !== null && user.activeOrgId !== undefined
+      ? and(
+          eq(leads.publicId, publicId),
+          eq(leads.organizationId, user.activeOrgId)
+        )
+      : eq(leads.publicId, publicId);
+
+  const result = await db.select().from(leads).where(whereClause).limit(1);
   const row = result[0];
   if (!row || !canUserAccessLead(row, user)) {
     return null;
@@ -1089,6 +1193,7 @@ export async function createLead(input: LeadCreateInput, user: CurrentUser) {
         };
 
   await db.insert(leads).values({
+    organizationId: user.activeOrgId ?? 1,
     publicId,
     contactoNombre: contacto.nombre.trim(),
     contactoTelefono: contacto.telefono.trim(),
@@ -1788,19 +1893,34 @@ export async function getDashboardSnapshot(user: CurrentUser) {
  * fase distinta por cada pipeline (relación vía lead_pipeline_stages).
  * ============================================================ */
 
-export async function listPipelines() {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  return db.select().from(pipelines).orderBy(asc(pipelines.order));
-}
-
-export async function listActivePipelines() {
+/**
+ * Lista pipelines de la organizacion activa. Antes era global.
+ */
+export async function listPipelines(organizationId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db
     .select()
     .from(pipelines)
-    .where(eq(pipelines.isActive, true))
+    .where(eq(pipelines.organizationId, organizationId))
+    .orderBy(asc(pipelines.order));
+}
+
+/**
+ * Lista pipelines activos de la organizacion activa. Antes era global.
+ */
+export async function listActivePipelines(organizationId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db
+    .select()
+    .from(pipelines)
+    .where(
+      and(
+        eq(pipelines.organizationId, organizationId),
+        eq(pipelines.isActive, true)
+      )
+    )
     .orderBy(asc(pipelines.order));
 }
 
@@ -1816,33 +1936,48 @@ export async function getPipeline(id: number): Promise<Pipeline | null> {
 }
 
 /**
- * Devuelve el primer pipeline activo (orden 1). Si no hay ninguno, el primero de la tabla.
- * Se usa como "pipeline por defecto" para mantener compatibilidad.
+ * Devuelve el pipeline "default" de una organizacion: el primero activo
+ * por `order ASC`, dentro del organizationId. Si no hay ninguno activo,
+ * el primero de la tabla en esa org. Antes era global y filtraba
+ * TODAS las orgs (gap de aislamiento cross-tenant).
  */
-export async function getDefaultPipeline(): Promise<Pipeline | null> {
+export async function getDefaultPipeline(
+  organizationId: number
+): Promise<Pipeline | null> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const [row] = await db
     .select()
     .from(pipelines)
-    .where(eq(pipelines.isActive, true))
+    .where(
+      and(
+        eq(pipelines.organizationId, organizationId),
+        eq(pipelines.isActive, true)
+      )
+    )
     .orderBy(asc(pipelines.order))
     .limit(1);
   if (row) return row;
-  const all = await db
+  const [all] = await db
     .select()
     .from(pipelines)
+    .where(eq(pipelines.organizationId, organizationId))
     .orderBy(asc(pipelines.order))
     .limit(1);
-  return all[0] ?? null;
+  return all ?? null;
 }
 
 export async function createPipeline(
-  data: Omit<Pipeline, "id" | "createdAt" | "updatedAt">
+  data: Omit<Pipeline, "id" | "createdAt" | "updatedAt" | "organizationId"> & {
+    organizationId?: number;
+  }
 ): Promise<Pipeline> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [row] = await db.insert(pipelines).values(data).$returningId();
+  const [row] = await db
+    .insert(pipelines)
+    .values({ ...data, organizationId: data.organizationId ?? 1 })
+    .$returningId();
   if (!row) throw new Error("No fue posible crear el embudo.");
   return getPipeline(row.id) as Promise<Pipeline>;
 }
@@ -1883,20 +2018,10 @@ export async function reorderPipelines(orderedIds: number[]): Promise<void> {
 
 /* ----- Stages ----- */
 
-export async function listPipelineStages(pipelineId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  if (pipelineId) {
-    return db
-      .select()
-      .from(pipelineStages)
-      .where(eq(pipelineStages.pipelineId, pipelineId))
-      .orderBy(asc(pipelineStages.order));
-  }
-  return db.select().from(pipelineStages).orderBy(asc(pipelineStages.order));
-}
-
-export async function listActivePipelineStages(pipelineId?: number) {
+export async function listPipelineStages(
+  organizationId: number,
+  pipelineId?: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   if (pipelineId) {
@@ -1905,6 +2030,32 @@ export async function listActivePipelineStages(pipelineId?: number) {
       .from(pipelineStages)
       .where(
         and(
+          eq(pipelineStages.organizationId, organizationId),
+          eq(pipelineStages.pipelineId, pipelineId)
+        )
+      )
+      .orderBy(asc(pipelineStages.order));
+  }
+  return db
+    .select()
+    .from(pipelineStages)
+    .where(eq(pipelineStages.organizationId, organizationId))
+    .orderBy(asc(pipelineStages.order));
+}
+
+export async function listActivePipelineStages(
+  organizationId: number,
+  pipelineId?: number
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (pipelineId) {
+    return db
+      .select()
+      .from(pipelineStages)
+      .where(
+        and(
+          eq(pipelineStages.organizationId, organizationId),
           eq(pipelineStages.isActive, true),
           eq(pipelineStages.pipelineId, pipelineId)
         )
@@ -1914,7 +2065,12 @@ export async function listActivePipelineStages(pipelineId?: number) {
   return db
     .select()
     .from(pipelineStages)
-    .where(eq(pipelineStages.isActive, true))
+    .where(
+      and(
+        eq(pipelineStages.organizationId, organizationId),
+        eq(pipelineStages.isActive, true)
+      )
+    )
     .orderBy(asc(pipelineStages.order));
 }
 
@@ -1970,11 +2126,19 @@ export async function getPipelineStageByKind(
 }
 
 export async function createPipelineStage(
-  data: Omit<PipelineStage, "id" | "createdAt" | "updatedAt">
+  data: Omit<
+    PipelineStage,
+    "id" | "createdAt" | "updatedAt" | "organizationId"
+  > & {
+    organizationId?: number;
+  }
 ): Promise<PipelineStage> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [row] = await db.insert(pipelineStages).values(data).$returningId();
+  const [row] = await db
+    .insert(pipelineStages)
+    .values({ ...data, organizationId: data.organizationId ?? 1 })
+    .$returningId();
   if (!row) throw new Error("No fue posible crear la fase.");
   return getPipelineStage(row.id) as Promise<PipelineStage>;
 }
@@ -2006,13 +2170,21 @@ export async function deletePipelineStage(id: number): Promise<void> {
  * Cuenta cuántos leads están en una fase (por id) en la BD.
  * Sirve para bloquear el borrado si la fase tiene leads.
  */
-export async function countLeadsByStageId(stageId: number): Promise<number> {
+export async function countLeadsByStageId(
+  stageId: number,
+  organizationId: number
+): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const rows = await db
     .select({ id: leadPipelineStages.leadId })
     .from(leadPipelineStages)
-    .where(eq(leadPipelineStages.stageId, stageId));
+    .where(
+      and(
+        eq(leadPipelineStages.stageId, stageId),
+        eq(leadPipelineStages.organizationId, organizationId)
+      )
+    );
   return rows.length;
 }
 
@@ -2020,13 +2192,21 @@ export async function countLeadsByStageId(stageId: number): Promise<number> {
  * Cuenta leads por nombre de fase en leads.estadoLead (denormalizado).
  * Mantener para retro-compatibilidad.
  */
-export async function countLeadsByStageName(name: string): Promise<number> {
+export async function countLeadsByStageName(
+  name: string,
+  organizationId: number
+): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const rows = await db
     .select({ id: leads.id })
     .from(leads)
-    .where(eq(leads.estadoLead, name as any));
+    .where(
+      and(
+        eq(leads.estadoLead, name as any),
+        eq(leads.organizationId, organizationId)
+      )
+    );
   return rows.length;
 }
 
@@ -2086,11 +2266,22 @@ export async function setLeadStageInPipeline(
 ): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+
+  // Inferir organizationId del pipeline (todos los stages de
+  // un pipeline pertenecen a la misma org).
+  const [pipe] = await db
+    .select({ organizationId: pipelines.organizationId })
+    .from(pipelines)
+    .where(eq(pipelines.id, pipelineId))
+    .limit(1);
+  if (!pipe) throw new Error("Pipeline no encontrado");
+
   // INSERT siempre: guarda historial de movimientos en lugar de
   // una sola fila por lead+pipeline. Las métricas de conversión
   // (transición, tiempo promedio, velocidad, dropoff) dependen
   // de este historial para calcular tasas reales.
   await db.insert(leadPipelineStages).values({
+    organizationId: pipe.organizationId,
     leadId,
     pipelineId,
     stageId,
@@ -2108,22 +2299,37 @@ export async function listLeadsInStage(stageId: number) {
     .where(eq(leadPipelineStages.stageId, stageId));
 }
 
+export async function markLeadAfterVisitFired(leadId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(leads)
+    .set({ firedAfterVisitAt: new Date() })
+    .where(eq(leads.id, leadId));
+}
+
 export async function countLeadsInPipeline(
-  pipelineId: number
+  pipelineId: number,
+  organizationId: number
 ): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // Si es el pipeline Principal (order=1), todos los leads existen en él
-  // porque PipelinePage agrupa por estadoLead (denormalizado).
+  // Si es el pipeline Principal (order=1) DE ESTA ORG, contar
+  // los leads de la org (regla denormalizada: leads.estadoLead
+  // se sincroniza con las fases del Principal).
   const [pipe] = await db
     .select()
     .from(pipelines)
     .where(eq(pipelines.id, pipelineId))
     .limit(1);
+  if (!pipe) return 0;
 
-  if (pipe && pipe.order === 1) {
-    const all = await db.select({ id: leads.id }).from(leads);
+  if (pipe.order === 1) {
+    const all = await db
+      .select({ id: leads.id })
+      .from(leads)
+      .where(eq(leads.organizationId, organizationId));
     return all.length;
   }
 
@@ -2131,17 +2337,29 @@ export async function countLeadsInPipeline(
   const rows = await db
     .select({ id: leadPipelineStages.id })
     .from(leadPipelineStages)
-    .where(eq(leadPipelineStages.pipelineId, pipelineId));
+    .where(
+      and(
+        eq(leadPipelineStages.pipelineId, pipelineId),
+        eq(leadPipelineStages.organizationId, organizationId)
+      )
+    );
   return rows.length;
 }
 
 /**
  * Funciones para Etiquetas Personalizadas
+ *
+ * `listCustomLabels(organizationId)` solo devuelve las etiquetas de la
+ * org activa. Antes era global (gap de aislamiento).
  */
-export async function listCustomLabels() {
+export async function listCustomLabels(organizationId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return db.select().from(customLabels).orderBy(asc(customLabels.name));
+  return db
+    .select()
+    .from(customLabels)
+    .where(eq(customLabels.organizationId, organizationId))
+    .orderBy(asc(customLabels.name));
 }
 
 export async function createCustomLabel(data: any) {
@@ -2152,25 +2370,37 @@ export async function createCustomLabel(data: any) {
 
 /**
  * Funciones para Canales Personalizados
+ *
+ * `listCustomChannels(organizationId)` solo devuelve los canales de la
+ * org activa. Antes era global (gap de aislamiento).
  */
-export async function listCustomChannels() {
+export async function listCustomChannels(organizationId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db
     .select()
     .from(customChannels)
-    .where(eq(customChannels.isActive, true));
+    .where(
+      and(
+        eq(customChannels.organizationId, organizationId),
+        eq(customChannels.isActive, true)
+      )
+    );
 }
 
 /**
  * Funciones para Automatizaciones
+ *
+ * `listAutomationRules(organizationId)` solo devuelve las reglas de
+ * la org activa. Antes era global (gap de aislamiento).
  */
-export async function listAutomationRules() {
+export async function listAutomationRules(organizationId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db
     .select()
     .from(automationRules)
+    .where(eq(automationRules.organizationId, organizationId))
     .orderBy(desc(automationRules.createdAt));
 }
 
@@ -2180,13 +2410,23 @@ export async function createAutomationRule(data: any) {
   return db.insert(automationRules).values(data);
 }
 
-export async function getActiveAutomationRules() {
+/**
+ * Devuelve las reglas de automatizacion activas de una org.
+ * Antes era global, lo que causaba que reglas de la org A se
+ * dispararan para leads de la org B (gap CRITICO de aislamiento).
+ */
+export async function getActiveAutomationRules(organizationId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db
     .select()
     .from(automationRules)
-    .where(eq(automationRules.isActive, true))
+    .where(
+      and(
+        eq(automationRules.organizationId, organizationId),
+        eq(automationRules.isActive, true)
+      )
+    )
     .orderBy(desc(automationRules.createdAt));
 }
 
@@ -2229,13 +2469,17 @@ export async function incrementRuleExecution(id: number) {
 
 /**
  * Funciones para Email Marketing
+ *
+ * `listEmailCampaigns(organizationId)` solo devuelve las campañas de
+ * la org activa. Antes era global (gap de aislamiento).
  */
-export async function listEmailCampaigns() {
+export async function listEmailCampaigns(organizationId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db
     .select()
     .from(emailCampaigns)
+    .where(eq(emailCampaigns.organizationId, organizationId))
     .orderBy(desc(emailCampaigns.createdAt));
 }
 
@@ -2245,22 +2489,54 @@ export async function createEmailCampaign(data: any) {
   return db.insert(emailCampaigns).values(data);
 }
 
-export async function getEmailCampaign(id: number) {
+export async function getEmailCampaign(id: number, organizationId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const [campaign] = await db
     .select()
     .from(emailCampaigns)
-    .where(eq(emailCampaigns.id, id))
+    .where(
+      and(
+        eq(emailCampaigns.id, id),
+        eq(emailCampaigns.organizationId, organizationId)
+      )
+    )
     .limit(1);
   return campaign;
 }
 
-export async function updateEmailCampaign(id: number, data: any) {
+export async function updateEmailCampaign(
+  id: number,
+  data: any,
+  organizationId?: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(emailCampaigns).set(data).where(eq(emailCampaigns.id, id));
-  return getEmailCampaign(id);
+  // Si recibimos orgId, validamos que la campaña pertenezca a esa org
+  // antes de modificarla (evita update cross-tenant).
+  if (organizationId !== undefined) {
+    const existing = await getEmailCampaign(id, organizationId);
+    if (!existing) {
+      throw new Error(
+        "Campaña no encontrada o no pertenece a la organización."
+      );
+    }
+  }
+  await db
+    .update(emailCampaigns)
+    .set(data)
+    .where(
+      organizationId !== undefined
+        ? and(
+            eq(emailCampaigns.id, id),
+            eq(emailCampaigns.organizationId, organizationId)
+          )
+        : eq(emailCampaigns.id, id)
+    );
+  return getEmailCampaign(
+    id,
+    organizationId ?? (await getEmailCampaign(id, 1))?.organizationId ?? 1
+  );
 }
 
 export async function deleteEmailCampaign(id: number) {
@@ -2274,6 +2550,22 @@ export async function getUserById(id: number) {
   if (!db) throw new Error("Database not available");
   const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
   return user;
+}
+
+export async function updateUserTelegramChatId(
+  userId: number,
+  telegramChatId: string | null
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(users)
+    .set({
+      telegramChatId:
+        telegramChatId && telegramChatId.trim() ? telegramChatId.trim() : null,
+    })
+    .where(eq(users.id, userId));
+  return true;
 }
 
 /* ============================================================
@@ -2680,6 +2972,53 @@ export async function removeLeadFromPipeline(
         eq(leadPipelineStages.pipelineId, pipelineId)
       )
     );
+}
+
+/**
+ * Elimina un lead y todas sus filas asociadas.
+ * El usuario debe tener visibilidad sobre el lead (se valida antes).
+ *
+ * Las FK con ON DELETE CASCADE limpian automáticamente:
+ *   - dial_attempts
+ *   - dialing_queue_leads
+ *   - sms_messages
+ * Las FK con ON DELETE SET NULL desvinculan:
+ *   - call_recordings (leadId -> NULL, archivo de audio se conserva)
+ *   - dialing_queues (currentLeadId -> NULL)
+ *   - phone_list_entries (leadId -> NULL, mantiene la entrada)
+ *
+ * Las tablas SIN FK a `leads` se limpian manualmente en una transacción:
+ *   - leadActivities (registro de actividad del lead)
+ *   - leadCalendarSyncs (sincronizaciones con Google Calendar)
+ *   - lead_pipeline_stages (mapeo lead <-> stage)
+ */
+export async function deleteLeadById(
+  leadId: number,
+  user: CurrentUser
+): Promise<boolean> {
+  const dbConn = await getDb();
+  if (!dbConn) throw new Error("Database not available");
+
+  // Verificar que el usuario puede ver el lead (chequeo de visibilidad por org)
+  const allVisible = await listVisibleLeadRows(user);
+  const leadRow = allVisible.find(r => r.id === leadId);
+  if (!leadRow) return false;
+
+  return await dbConn.transaction(async tx => {
+    // 1. Limpiar tablas sin FK
+    await tx.delete(leadActivities).where(eq(leadActivities.leadId, leadId));
+    await tx
+      .delete(leadCalendarSyncs)
+      .where(eq(leadCalendarSyncs.leadId, leadId));
+    await tx
+      .delete(leadPipelineStages)
+      .where(eq(leadPipelineStages.leadId, leadId));
+
+    // 2. Eliminar el lead (las FK en cascada se ejecutan automáticamente)
+    await tx.delete(leads).where(eq(leads.id, leadId));
+
+    return true;
+  });
 }
 
 /**
@@ -3239,13 +3578,26 @@ export async function getDropOff(
  * CRUD de metric_views (vistas guardadas de métricas)
  * ============================================================ */
 
-export async function listMetricViewsForUser(userId: number) {
+/**
+ * Vistas guardadas de metricas de un user, dentro de una org.
+ * Antes filtraba solo por userId (gap de aislamiento: las vistas
+ * guardadas en la org A aparecian en la org B).
+ */
+export async function listMetricViewsForUser(
+  userId: number,
+  organizationId: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   return db
     .select()
     .from(metricViews)
-    .where(eq(metricViews.userId, userId))
+    .where(
+      and(
+        eq(metricViews.userId, userId),
+        eq(metricViews.organizationId, organizationId)
+      )
+    )
     .orderBy(desc(metricViews.updatedAt));
 }
 
@@ -3313,33 +3665,55 @@ export async function listPermissions(): Promise<Permission[]> {
     .orderBy(asc(permissions.groupName), asc(permissions.key));
 }
 
-export async function listUserPermissions(userId: number): Promise<string[]> {
+export async function listUserPermissions(
+  userId: number,
+  organizationId: number = 1
+): Promise<string[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const rows = await db
     .select({ key: permissions.key })
     .from(userPermissions)
     .innerJoin(permissions, eq(permissions.id, userPermissions.permissionId))
-    .where(eq(userPermissions.userId, userId));
+    .where(
+      and(
+        eq(userPermissions.userId, userId),
+        eq(userPermissions.organizationId, organizationId)
+      )
+    );
   return rows.map(r => r.key);
 }
 
 export async function setUserPermissions(
   userId: number,
-  permissionIds: number[]
+  permissionIds: number[],
+  organizationId: number = 1
 ): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.delete(userPermissions).where(eq(userPermissions.userId, userId));
+  await db
+    .delete(userPermissions)
+    .where(
+      and(
+        eq(userPermissions.userId, userId),
+        eq(userPermissions.organizationId, organizationId)
+      )
+    );
   if (permissionIds.length > 0) {
-    await db
-      .insert(userPermissions)
-      .values(permissionIds.map(permissionId => ({ userId, permissionId })));
+    await db.insert(userPermissions).values(
+      permissionIds.map(permissionId => ({
+        userId,
+        permissionId,
+        organizationId,
+      }))
+    );
   }
 }
 
 /**
  * Crea un usuario con rol "custom" y sus permisos.
+ * Si se pasa `organizationId`, además lo agrega como miembro
+ * de esa org con `orgRole` especificado (default 'agent').
  */
 export async function createCustomUser(data: {
   openId?: string;
@@ -3348,7 +3722,9 @@ export async function createCustomUser(data: {
   passwordHash: string;
   role: string;
   permissionIds: number[];
-}): Promise<void> {
+  organizationId?: number;
+  orgRole?: "owner" | "admin" | "agent" | "viewer";
+}): Promise<{ userId: number }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -3369,8 +3745,496 @@ export async function createCustomUser(data: {
     .from(users)
     .where(eq(users.openId, openId))
     .limit(1);
+  if (!inserted) throw new Error("No fue posible crear el usuario.");
 
-  if (inserted && data.permissionIds.length > 0) {
-    await setUserPermissions(inserted.id, data.permissionIds);
+  if (data.permissionIds.length > 0) {
+    await setUserPermissions(
+      inserted.id,
+      data.permissionIds,
+      data.organizationId ?? 1
+    );
   }
+
+  if (data.organizationId) {
+    await addMemberToOrganization({
+      organizationId: data.organizationId,
+      userId: inserted.id,
+      orgRole: data.orgRole ?? "agent",
+    });
+  }
+
+  return { userId: inserted.id };
+}
+
+// ============================================================
+// Multi-tenant: organizations
+// ============================================================
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+async function ensureUniqueOrgSlug(base: string): Promise<string> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  let candidate = base || "organizacion";
+  let n = 1;
+  while (true) {
+    const [exists] = await db
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.slug, candidate))
+      .limit(1);
+    if (!exists) return candidate;
+    n += 1;
+    candidate = `${base}-${n}`;
+  }
+}
+
+export async function listOrganizationsForUser(userId: number): Promise<
+  Array<
+    Organization & {
+      orgRole: string;
+      memberStatus: string;
+    }
+  >
+> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: organizations.id,
+      name: organizations.name,
+      slug: organizations.slug,
+      status: organizations.status,
+      createdByUserId: organizations.createdByUserId,
+      createdAt: organizations.createdAt,
+      updatedAt: organizations.updatedAt,
+      orgRole: organizationMembers.orgRole,
+      memberStatus: organizationMembers.status,
+    })
+    .from(organizationMembers)
+    .innerJoin(
+      organizations,
+      eq(organizations.id, organizationMembers.organizationId)
+    )
+    .where(
+      and(
+        eq(organizationMembers.userId, userId),
+        eq(organizationMembers.status, "active")
+      )
+    )
+    .orderBy(asc(organizations.id));
+}
+
+export async function getOrganizationById(
+  id: number
+): Promise<Organization | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select()
+    .from(organizations)
+    .where(eq(organizations.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Lista todas las organizaciones del sistema con su conteo
+ * de miembros activos. Usado por el superadmin en el panel
+ * "Organizaciones" de Settings.
+ */
+export async function listAllOrganizationsWithCounts(): Promise<
+  Array<Organization & { memberCount: number }>
+> {
+  const db = await getDb();
+  if (!db) return [];
+  // Drizzle no soporta subqueries en SELECT fácilmente, así
+  // que hacemos la query en dos pasos: 1) traer orgs, 2)
+  // contar miembros por org en una sola query agrupada.
+  const allOrgs = await db
+    .select()
+    .from(organizations)
+    .orderBy(asc(organizations.id));
+  if (allOrgs.length === 0) return [];
+  const counts = await db
+    .select({
+      organizationId: organizationMembers.organizationId,
+      count: sql<number>`COUNT(*)`,
+    })
+    .from(organizationMembers)
+    .where(eq(organizationMembers.status, "active"))
+    .groupBy(organizationMembers.organizationId);
+  const countMap = new Map(
+    counts.map(c => [c.organizationId, Number(c.count)])
+  );
+  return allOrgs.map(o => ({
+    ...o,
+    memberCount: countMap.get(o.id) ?? 0,
+  }));
+}
+
+export async function getOrganizationSettings(
+  organizationId: number
+): Promise<OrganizationSettings | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select()
+    .from(organizationSettings)
+    .where(eq(organizationSettings.organizationId, organizationId))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function getOrganizationMember(
+  userId: number,
+  organizationId: number
+): Promise<OrganizationMember | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select()
+    .from(organizationMembers)
+    .where(
+      and(
+        eq(organizationMembers.userId, userId),
+        eq(organizationMembers.organizationId, organizationId)
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export async function listOrganizationMembers(organizationId: number): Promise<
+  Array<
+    OrganizationMember & {
+      user: Pick<User, "id" | "name" | "email" | "role" | "lastSignedIn"> & {
+        telegramChatId: string | null;
+      };
+    }
+  >
+> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: organizationMembers.id,
+      organizationId: organizationMembers.organizationId,
+      userId: organizationMembers.userId,
+      orgRole: organizationMembers.orgRole,
+      status: organizationMembers.status,
+      joinedAt: organizationMembers.joinedAt,
+      user: {
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        role: users.role,
+        lastSignedIn: users.lastSignedIn,
+        telegramChatId: users.telegramChatId,
+      },
+    })
+    .from(organizationMembers)
+    .innerJoin(users, eq(users.id, organizationMembers.userId))
+    .where(eq(organizationMembers.organizationId, organizationId))
+    .orderBy(asc(organizationMembers.joinedAt));
+}
+
+export async function createOrganization(input: {
+  name: string;
+  slug?: string;
+  createdByUserId: number;
+}): Promise<Organization> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const baseSlug = slugify(input.slug ?? input.name);
+  const slug = await ensureUniqueOrgSlug(baseSlug);
+  const [row] = await db
+    .insert(organizations)
+    .values({
+      name: input.name,
+      slug,
+      status: "active",
+      createdByUserId: input.createdByUserId,
+    })
+    .$returningId();
+  if (!row) throw new Error("No fue posible crear la organización.");
+  const created = await getOrganizationById(row.id);
+  if (!created) throw new Error("No fue posible crear la organización.");
+
+  // Crear fila de settings con defaults
+  await db.insert(organizationSettings).values({
+    organizationId: created.id,
+    displayName: created.name,
+    primaryColor: "#5B21B6",
+  });
+
+  // El creador es owner de la org
+  await db.insert(organizationMembers).values({
+    organizationId: created.id,
+    userId: input.createdByUserId,
+    orgRole: "owner",
+    status: "active",
+  });
+
+  return created;
+}
+
+export async function updateOrganization(input: {
+  id: number;
+  name?: string;
+  status?: "active" | "paused" | "archived";
+}): Promise<Organization | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const update: Partial<typeof organizations.$inferInsert> = {};
+  if (input.name !== undefined) update.name = input.name;
+  if (input.status !== undefined) update.status = input.status;
+  if (Object.keys(update).length === 0) {
+    return getOrganizationById(input.id);
+  }
+  await db
+    .update(organizations)
+    .set(update)
+    .where(eq(organizations.id, input.id));
+  return getOrganizationById(input.id);
+}
+
+/**
+ * Elimina una organización y todos sus datos asociados.
+ * Solo el superadmin puede llamar a esta función (chequeo en el caller).
+ *
+ * FK con ON DELETE CASCADE limpian automáticamente:
+ *   - organizationMembers, organizationInvitations, organizationSettings
+ *   - callRecordings, dialingQueues, dialingQueueLeads, dialAttempts, smsMessages
+ *   - phoneLists, phoneListEntries
+ *
+ * Tablas SIN FK a `organizations` se limpian manualmente en la transacción:
+ *   - leads (no tiene FK, organizationId es solo un int)
+ */
+export async function deleteOrganizationById(orgId: number): Promise<boolean> {
+  const dbConn = await getDb();
+  if (!dbConn) throw new Error("Database not available");
+
+  const [existing] = await dbConn
+    .select()
+    .from(organizations)
+    .where(eq(organizations.id, orgId))
+    .limit(1);
+  if (!existing) return false;
+
+  await dbConn.transaction(async tx => {
+    // Limpiar tabla sin FK a organizations
+    await tx.delete(leads).where(eq(leads.organizationId, orgId));
+    // Eliminar la org (cascade limpia el resto)
+    await tx.delete(organizations).where(eq(organizations.id, orgId));
+  });
+
+  return true;
+}
+
+export async function updateOrganizationSettings(input: {
+  organizationId: number;
+  displayName?: string | null;
+  primaryColor?: string | null;
+  logoUrl?: string | null;
+  faviconUrl?: string | null;
+  pricing?: Record<string, unknown> | null;
+  scoring?: Record<string, unknown> | null;
+  meta?: Record<string, unknown> | null;
+  integrations?: Record<string, unknown> | null;
+}): Promise<OrganizationSettings | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const update: Partial<typeof organizationSettings.$inferInsert> = {};
+  if (input.displayName !== undefined) update.displayName = input.displayName;
+  if (input.primaryColor !== undefined)
+    update.primaryColor = input.primaryColor;
+  if (input.logoUrl !== undefined) update.logoUrl = input.logoUrl;
+  if (input.faviconUrl !== undefined) update.faviconUrl = input.faviconUrl;
+  if (input.pricing !== undefined)
+    update.pricing = JSON.stringify(input.pricing);
+  if (input.scoring !== undefined)
+    update.scoring = JSON.stringify(input.scoring);
+  if (input.meta !== undefined) update.meta = JSON.stringify(input.meta);
+  if (input.integrations !== undefined)
+    update.integrations = JSON.stringify(input.integrations);
+  if (Object.keys(update).length === 0) {
+    return getOrganizationSettings(input.organizationId);
+  }
+  await db
+    .update(organizationSettings)
+    .set(update)
+    .where(eq(organizationSettings.organizationId, input.organizationId));
+  return getOrganizationSettings(input.organizationId);
+}
+
+export async function addMemberToOrganization(input: {
+  organizationId: number;
+  userId: number;
+  orgRole: "owner" | "admin" | "agent" | "viewer";
+}): Promise<OrganizationMember> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Upsert por (orgId, userId)
+  const existing = await getOrganizationMember(
+    input.userId,
+    input.organizationId
+  );
+  if (existing) {
+    await db
+      .update(organizationMembers)
+      .set({ orgRole: input.orgRole, status: "active" })
+      .where(eq(organizationMembers.id, existing.id));
+    const [row] = await db
+      .select()
+      .from(organizationMembers)
+      .where(eq(organizationMembers.id, existing.id))
+      .limit(1);
+    return row!;
+  }
+  const [row] = await db
+    .insert(organizationMembers)
+    .values({
+      organizationId: input.organizationId,
+      userId: input.userId,
+      orgRole: input.orgRole,
+      status: "active",
+    })
+    .$returningId();
+  const [created] = await db
+    .select()
+    .from(organizationMembers)
+    .where(eq(organizationMembers.id, row.id))
+    .limit(1);
+  return created!;
+}
+
+export async function updateOrganizationMember(input: {
+  id: number;
+  orgRole?: "owner" | "admin" | "agent" | "viewer";
+  status?: "active" | "invited" | "suspended";
+}): Promise<OrganizationMember | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const update: Partial<typeof organizationMembers.$inferInsert> = {};
+  if (input.orgRole !== undefined) update.orgRole = input.orgRole;
+  if (input.status !== undefined) update.status = input.status;
+  if (Object.keys(update).length === 0) {
+    const [row] = await db
+      .select()
+      .from(organizationMembers)
+      .where(eq(organizationMembers.id, input.id))
+      .limit(1);
+    return row ?? null;
+  }
+  await db
+    .update(organizationMembers)
+    .set(update)
+    .where(eq(organizationMembers.id, input.id));
+  const [row] = await db
+    .select()
+    .from(organizationMembers)
+    .where(eq(organizationMembers.id, input.id))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function removeOrganizationMember(
+  memberId: number
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .delete(organizationMembers)
+    .where(eq(organizationMembers.id, memberId));
+}
+
+export async function createInvitation(input: {
+  organizationId: number;
+  email: string;
+  orgRole: "owner" | "admin" | "agent" | "viewer";
+  invitedByUserId: number;
+  token: string;
+  expiresAt: Date;
+}): Promise<OrganizationInvitation> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Revocar invitaciones pendientes duplicadas
+  await db
+    .update(organizationInvitations)
+    .set({ status: "revoked" })
+    .where(
+      and(
+        eq(organizationInvitations.organizationId, input.organizationId),
+        eq(organizationInvitations.email, input.email),
+        eq(organizationInvitations.status, "pending")
+      )
+    );
+  const [row] = await db
+    .insert(organizationInvitations)
+    .values({
+      organizationId: input.organizationId,
+      email: input.email,
+      orgRole: input.orgRole,
+      invitedByUserId: input.invitedByUserId,
+      token: input.token,
+      status: "pending",
+      expiresAt: input.expiresAt,
+    })
+    .$returningId();
+  const [created] = await db
+    .select()
+    .from(organizationInvitations)
+    .where(eq(organizationInvitations.id, row.id))
+    .limit(1);
+  return created!;
+}
+
+export async function getInvitationByToken(
+  token: string
+): Promise<OrganizationInvitation | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select()
+    .from(organizationInvitations)
+    .where(eq(organizationInvitations.token, token))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function markInvitationAccepted(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(organizationInvitations)
+    .set({ status: "accepted" })
+    .where(eq(organizationInvitations.id, id));
+}
+
+export async function listPendingInvitations(
+  organizationId: number
+): Promise<OrganizationInvitation[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(organizationInvitations)
+    .where(
+      and(
+        eq(organizationInvitations.organizationId, organizationId),
+        eq(organizationInvitations.status, "pending")
+      )
+    )
+    .orderBy(desc(organizationInvitations.createdAt));
 }

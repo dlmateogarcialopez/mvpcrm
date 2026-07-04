@@ -1,1 +1,0 @@
-ALTER TABLE `leadActivities` MODIFY COLUMN `activityType` enum('lead_created','lead_updated','status_changed','note_added','assignment_changed','sensitive_fields_changed','calendar_sync','alert_sent','automation') NOT NULL;

@@ -12,11 +12,13 @@ import * as db from "../db";
  */
 export async function renameInAutomationRules(
   oldName: string,
-  newName: string
+  newName: string,
+  organizationId: number
 ): Promise<number> {
   if (!oldName || oldName === newName) return 0;
 
-  const rules = await db.listAutomationRules();
+  // Solo reglas de la org donde se está renombrando el pipeline.
+  const rules = await db.listAutomationRules(organizationId);
   let updated = 0;
 
   for (const rule of rules) {

@@ -1,9 +1,13 @@
 import { useState, type FormEvent } from "react";
+import { useLocation } from "wouter";
+import { useSearch } from "wouter";
 import { toast } from "sonner";
 import { KeyRound, Mail, User, Loader2, Sparkles } from "lucide-react";
 import { trpc } from "../lib/trpc";
 
 export default function LoginPage() {
+  const [, setLocation] = useLocation();
+  const searchString = useSearch();
   const utils = trpc.useUtils();
   const hasUsersQuery = trpc.auth.hasUsers.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -14,10 +18,31 @@ export default function LoginPage() {
   const [name, setName] = useState("");
 
   const loginMutation = trpc.auth.login.useMutation({
-    onSuccess: async () => {
-      toast.success("¡Sesión iniciada con éxito! Redirigiendo...");
+    onSuccess: async (data) => {
+      toast.success("¡Sesión iniciada con éxito!");
       await utils.auth.me.invalidate();
-      window.location.href = "/";
+      // Decidir a dónde redirigir:
+      //  1. Si hay `redirect` en query string (caso invitación), ir ahí.
+      //  2. Si el user pertenece a >1 org, ir al selector.
+      //  3. Si pertenece a 1 org, ir al dashboard.
+      //  4. Si no pertenece a ninguna, ir a /select-org (mostrará el
+      //     estado "no perteneces a ninguna org").
+      const params = new URLSearchParams(searchString);
+      const redirectTarget = params.get("redirect");
+      const orgs = (data as { organizations?: Array<{ id: number }> })
+        .organizations;
+      const orgCount = orgs?.length ?? 0;
+      if (redirectTarget) {
+        window.location.href = redirectTarget;
+      } else if (orgCount > 1) {
+        window.location.href = "/select-org";
+      } else {
+        // 0 o 1 orgs: el destino correcto es / o /select-org
+        // según el comportamiento. Para 1 org, / funciona porque
+        // la cookie ya está seteada. Para 0 orgs, llevamos a
+        // /select-org para que muestre el mensaje.
+        window.location.href = orgCount === 0 ? "/select-org" : "/";
+      }
     },
     onError: (error) => {
       toast.error(error.message || "Error al iniciar sesión. Revisa tus credenciales.");

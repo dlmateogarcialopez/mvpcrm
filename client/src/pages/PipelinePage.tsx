@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import {
   AlertTriangle,
+  Loader2,
   Plus,
   Settings2,
   GripVertical,
@@ -71,7 +72,13 @@ interface LeadInPipeline {
 
 /* ============== Tarjeta de lead (arrastrable entre columnas) ============== */
 
-function DraggableLeadCard({ lead }: { lead: Lead }) {
+function DraggableLeadCard({
+  lead,
+  isMoving,
+}: {
+  lead: Lead;
+  isMoving?: boolean;
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: lead.publicId,
@@ -96,6 +103,11 @@ function DraggableLeadCard({ lead }: { lead: Lead }) {
         isDragging ? "z-50 shadow-lg border-primary/50" : ""
       }`}
     >
+      {isMoving && (
+        <div className="absolute inset-0 bg-white/60 flex items-center justify-center rounded-xl z-10">
+          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+        </div>
+      )}
       <div className="space-y-2 pointer-events-none">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
@@ -137,6 +149,7 @@ interface SortableStageColumnProps {
   onToggleActive: (id: number, isActive: boolean) => void;
   onDelete: (id: number, displayName: string) => void;
   isDraggingOverlay?: boolean;
+  movingLeadId: string | null;
 }
 
 function SortableStageColumn({
@@ -148,6 +161,7 @@ function SortableStageColumn({
   onToggleActive,
   onDelete,
   isDraggingOverlay = false,
+  movingLeadId,
 }: SortableStageColumnProps) {
   const {
     attributes,
@@ -352,7 +366,11 @@ function SortableStageColumn({
         }`}
       >
         {leads.map(lead => (
-          <DraggableLeadCard key={lead.publicId} lead={lead} />
+          <DraggableLeadCard
+            key={lead.publicId}
+            lead={lead}
+            isMoving={movingLeadId === lead.publicId}
+          />
         ))}
         {leads.length === 0 && (
           <div className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground pointer-events-none">
@@ -528,6 +546,7 @@ export function PipelinePage() {
   // Estado de drag
   const [activeStageId, setActiveStageId] = useState<number | null>(null);
   const [activeLeadId, setActiveLeadId] = useState<string | null>(null);
+  const [movingLeadId, setMovingLeadId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -622,9 +641,12 @@ export function PipelinePage() {
       if (activePipelineId) {
         utils.pipeline.listActive.setData(
           { pipelineId: activePipelineId },
-          newOrder
+          newOrder as never
         );
-        utils.pipeline.list.setData({ pipelineId: activePipelineId }, newOrder);
+        utils.pipeline.list.setData(
+          { pipelineId: activePipelineId },
+          newOrder as never
+        );
       }
 
       reorderMutation.mutate({ orderedIds });
@@ -646,17 +668,25 @@ export function PipelinePage() {
       // Verificar si el lead ya está en este stage (en el pipeline principal)
       if (isPrincipal) {
         if (lead.estadoLead === targetStage.name) return;
-        updateStatusMutation.mutate({
-          publicId: leadId,
-          estadoLead: targetStage.name as any,
-        });
+        setMovingLeadId(leadId);
+        updateStatusMutation.mutate(
+          {
+            publicId: leadId,
+            estadoLead: targetStage.name as any,
+          },
+          { onSettled: () => setMovingLeadId(null) }
+        );
       } else {
         // Para otros pipelines, usar moveStageInPipeline
-        moveStageMutation.mutate({
-          publicId: leadId,
-          pipelineId: activePipelineId!,
-          stageId: targetStageId,
-        });
+        setMovingLeadId(leadId);
+        moveStageMutation.mutate(
+          {
+            publicId: leadId,
+            pipelineId: activePipelineId!,
+            stageId: targetStageId,
+          },
+          { onSettled: () => setMovingLeadId(null) }
+        );
       }
     }
   };
@@ -812,6 +842,7 @@ export function PipelinePage() {
                   onRename={handleRename}
                   onToggleActive={handleToggleActive}
                   onDelete={handleDelete}
+                  movingLeadId={movingLeadId}
                 />
               ))}
             </div>

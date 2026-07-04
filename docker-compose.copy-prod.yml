@@ -1,0 +1,101 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: mv-database
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:-cotizador_leads}
+      MYSQL_USER: ${DB_USER:-mv_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-mv_password}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_password}
+    ports:
+      - "${DB_PORT:-3307}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mv-network
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+      args:
+        VITE_APP_ID: ${VITE_APP_ID:-}
+        VITE_OAUTH_PORTAL_URL: ${OAUTH_SERVER_URL:-}
+        VITE_FRONTEND_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL:-}
+        VITE_FRONTEND_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY:-}
+    container_name: mv-app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    expose:
+      - "3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: mysql://${DB_USER:-mv_user}:${DB_PASSWORD:-mv_password}@db:3306/${DB_NAME:-cotizador_leads}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      ALERT_FROM_EMAIL: ${ALERT_FROM_EMAIL:-}
+      GOOGLE_SERVICE_ACCOUNT_EMAIL: ${GOOGLE_SERVICE_ACCOUNT_EMAIL:-}
+      GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY:-}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+      OAUTH_SERVER_URL: ${OAUTH_SERVER_URL:-}
+      OWNER_OPEN_ID: ${OWNER_OPEN_ID:-}
+      # --- Twilio (VoIP + SMS) ---
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_API_KEY: ${TWILIO_API_KEY:-}
+      TWILIO_API_SECRET: ${TWILIO_API_SECRET:-}
+      TWILIO_TWIML_APP_SID: ${TWILIO_TWIML_APP_SID:-}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
+      ADVISOR_PHONE_NUMBER: ${ADVISOR_PHONE_NUMBER:-}
+      VOIP_RECORDINGS_DIR: ${VOIP_RECORDINGS_DIR:-/var/lib/voip/recordings}
+      # --- WhatsApp (Meta Cloud API) ---
+      META_WHATSAPP_TOKEN: ${META_WHATSAPP_TOKEN:-}
+      META_WHATSAPP_PHONE_ID: ${META_WHATSAPP_PHONE_ID:-}
+      META_WHATSAPP_WABA_ID: ${META_WHATSAPP_WABA_ID:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - mv-network
+      - appsbim_proxy
+    volumes:
+      - voip_recordings:/var/lib/voip/recordings
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=appsbim_proxy
+      - traefik.http.routers.crm.rule=Host(`crm.appsbim.online`)
+      - traefik.http.routers.crm.entrypoints=websecure
+      - traefik.http.routers.crm.tls=true
+      - traefik.http.routers.crm.tls.certresolver=letsencrypt
+      - traefik.http.services.crm.loadbalancer.server.port=3000
+
+volumes:
+  mysql_data:
+    driver: local
+  voip_recordings:
+    driver: local
+
+networks:
+  mv-network:
+    driver: bridge
+  appsbim_proxy:
+    external: true

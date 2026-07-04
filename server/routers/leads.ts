@@ -41,12 +41,31 @@ import { normalizeLeadTravelReason } from "../../shared/leads";
 
 type RouterUser = Pick<CurrentUser, "id" | "role" | "name" | "email">;
 
-function toCurrentUser(user: RouterUser): CurrentUser {
+function toCurrentUser(
+  user: RouterUser,
+  ctx?: { activeOrganizationId?: number | null; user?: any }
+): CurrentUser {
+  // El user del context (ctx.user) ya tiene activeOrgId y activeOrgRole
+  // propagados desde el middleware. Si nos pasan el ctx.user, lo usamos
+  // completo. Si nos pasan un user reducido (RouterUser), inferimos el
+  // activeOrgId del ctx pero no podemos inferir el orgRole.
+  if (ctx?.user && "activeOrgId" in ctx.user) {
+    return {
+      id: user.id,
+      role: user.role,
+      name: user.name,
+      email: user.email,
+      activeOrgId: ctx.user.activeOrgId,
+      activeOrgRole: ctx.user.activeOrgRole ?? null,
+    };
+  }
   return {
     id: user.id,
     role: user.role,
     name: user.name,
     email: user.email,
+    activeOrgId: ctx?.activeOrganizationId ?? null,
+    activeOrgRole: null,
   };
 }
 
@@ -62,17 +81,63 @@ async function loadLeadOrThrow(publicId: string, user: CurrentUser) {
 
 export const leadsRouter = router({
   dashboard: protectedProcedure.query(async ({ ctx }) => {
-    return getDashboardSnapshot(toCurrentUser(ctx.user));
+    const dashboard = await getDashboardSnapshot(toCurrentUser(ctx.user, ctx));
+    // Ejecutar reglas after_visit para leads que aún no se han disparado.
+    // Se ejecutan en segundo plano (fire-and-forget) para no ralentizar el dashboard.
+    const orgId = ctx.activeOrganizationId;
+    if (orgId) {
+      const activeRules = await db.getActiveAutomationRules(orgId);
+      const afterVisitRules = activeRules.filter(
+        (r: any) => r.trigger === "after_visit"
+      );
+      if (afterVisitRules.length > 0) {
+        const { getOrgIntegrations } = await import("../_core/orgIntegrations");
+        const orgIntegrations = await getOrgIntegrations(orgId);
+        const visible = await db.listVisibleLeadRows(
+          toCurrentUser(ctx.user, ctx)
+        );
+        const enriched = visible.map(db.enrichLead);
+        for (const lead of enriched) {
+          if ((lead as any).firedAfterVisitAt) continue;
+          if (lead.isClosed) continue;
+          if (["ganado", "perdido"].includes(lead.estadoLead)) continue;
+          if (!lead.fechaVisita || lead.fechaVisita >= Date.now()) continue;
+          for (const rule of afterVisitRules) {
+            try {
+              const { executeRuleAction } =
+                await import("../services/leadAutomation");
+              await executeRuleAction(
+                rule,
+                lead as any,
+                ctx.user.id,
+                orgIntegrations
+              );
+              await db.incrementRuleExecution(rule.id);
+              await db.markLeadAfterVisitFired(lead.id);
+              console.log(
+                `[Dashboard] after_visit disparado para ${lead.publicId}`
+              );
+            } catch (e: any) {
+              console.warn(
+                `[Dashboard] after_visit falló para ${lead.publicId}:`,
+                e?.message
+              );
+            }
+          }
+        }
+      }
+    }
+    return dashboard;
   }),
 
   list: protectedProcedure
     .input(leadFiltersSchema)
     .query(async ({ ctx, input }) => {
-      return listLeads(input, toCurrentUser(ctx.user));
+      return listLeads(input, toCurrentUser(ctx.user, ctx));
     }),
 
   exportSpreadsheet: protectedProcedure.mutation(async ({ ctx }) => {
-    const rows = await listLeadsForExport(toCurrentUser(ctx.user));
+    const rows = await listLeadsForExport(toCurrentUser(ctx.user, ctx));
     const workbook = buildLeadWorkbookBuffer(rows);
     const exportedAt = new Date();
     const stamp = exportedAt.toISOString().slice(0, 19).replace(/[T:]/g, "-");
@@ -132,7 +197,7 @@ export const leadsRouter = router({
       const buffer = Buffer.from(input.base64, "base64");
       const validation = validateLeadImport(buffer, input.manualMapping);
 
-      const currentUser = toCurrentUser(ctx.user);
+      const currentUser = toCurrentUser(ctx.user, ctx);
       const numericUserId =
         typeof ctx.user.id === "string"
           ? parseInt(ctx.user.id, 10)
@@ -202,7 +267,7 @@ export const leadsRouter = router({
     }),
 
   byId: protectedProcedure.input(leadIdSchema).query(async ({ ctx, input }) => {
-    return loadLeadOrThrow(input.publicId, toCurrentUser(ctx.user));
+    return loadLeadOrThrow(input.publicId, toCurrentUser(ctx.user, ctx));
   }),
 
   create: protectedProcedure
@@ -219,7 +284,7 @@ export const leadsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const currentUser = toCurrentUser(ctx.user);
+      const currentUser = toCurrentUser(ctx.user, ctx);
       const lead = await createLead(input, currentUser);
 
       if (!lead) {
@@ -244,7 +309,9 @@ export const leadsRouter = router({
         }
       } else {
         // Si no seleccionó pipelines, asignar al Principal por defecto
-        const defaultPipeline = await getDefaultPipeline();
+        const defaultPipeline = await getDefaultPipeline(
+          ctx.activeOrganizationId ?? 1
+        );
         if (defaultPipeline) {
           const firstStage = await getPipelineStageByName(
             defaultPipeline.id,
@@ -261,30 +328,39 @@ export const leadsRouter = router({
         }
       }
 
-      const automation = await runLeadAutomation(lead, ctx.user.id);
+      const automation = await runLeadAutomation(
+        lead,
+        ctx.user.id,
+        ctx.activeOrganizationId,
+        "lead_created"
+      );
       const refreshedLead = await loadLeadOrThrow(lead.publicId, currentUser);
 
       return {
+        success: true,
         lead: refreshedLead,
         automation,
       };
     }),
 
   /**
-   * Lista los leads asignados a un pipeline específico, con su stageId
-   * correspondiente para agrupación visual en el panel de embudo.
+   * Quita un lead de un pipeline (lo deja en el Principal, o sin pipeline
+   * si era el principal). El estado del lead no se modifica a nivel
+   * del campo `estadoLead`; solo se actualiza la tabla lead_pipeline_stages.
+   * Se registra la actividad correspondiente para agrupación visual
+   * en el panel de embudo.
    */
   listByPipeline: protectedProcedure
     .input(z.object({ pipelineId: z.number() }))
     .query(async ({ ctx, input }) => {
-      const currentUser = toCurrentUser(ctx.user);
+      const currentUser = toCurrentUser(ctx.user, ctx);
       return listLeadsByPipeline(input.pipelineId, currentUser);
     }),
 
   update: protectedProcedure
     .input(leadUpdateSchema)
     .mutation(async ({ ctx, input }) => {
-      const currentUser = toCurrentUser(ctx.user);
+      const currentUser = toCurrentUser(ctx.user, ctx);
       const lead = await updateLead(input, currentUser);
 
       if (!lead) {
@@ -294,7 +370,12 @@ export const leadsRouter = router({
         });
       }
 
-      const automation = await runLeadAutomation(lead, ctx.user.id);
+      const automation = await runLeadAutomation(
+        lead,
+        ctx.user.id,
+        ctx.activeOrganizationId,
+        "lead_updated"
+      );
       const refreshedLead = await loadLeadOrThrow(lead.publicId, currentUser);
 
       return {
@@ -306,7 +387,7 @@ export const leadsRouter = router({
   updateStatus: protectedProcedure
     .input(leadStatusUpdateSchema)
     .mutation(async ({ ctx, input }) => {
-      const currentUser = toCurrentUser(ctx.user);
+      const currentUser = toCurrentUser(ctx.user, ctx);
       const lead = await updateLeadStatus(input, currentUser);
 
       if (!lead) {
@@ -317,7 +398,9 @@ export const leadsRouter = router({
       }
 
       // Mantener sincronizado el lead_pipeline_stages del pipeline por defecto.
-      const defaultPipeline = await getDefaultPipeline();
+      const defaultPipeline = await getDefaultPipeline(
+        ctx.activeOrganizationId ?? 1
+      );
       if (defaultPipeline) {
         const stage = await getPipelineStageByName(
           defaultPipeline.id,
@@ -337,7 +420,12 @@ export const leadsRouter = router({
         }
       }
 
-      const automation = await runLeadAutomation(lead, ctx.user.id);
+      const automation = await runLeadAutomation(
+        lead,
+        ctx.user.id,
+        ctx.activeOrganizationId,
+        "status_changed"
+      );
       const refreshedLead = await loadLeadOrThrow(lead.publicId, currentUser);
 
       return {
@@ -360,7 +448,7 @@ export const leadsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const currentUser = toCurrentUser(ctx.user);
+      const currentUser = toCurrentUser(ctx.user, ctx);
       const lead = await loadLeadOrThrow(input.publicId, currentUser);
 
       const stage = await getPipelineStage(input.stageId);
@@ -388,7 +476,9 @@ export const leadsRouter = router({
       );
 
       // Si el pipeline es el principal, actualizar estadoLead denormalizado.
-      const defaultPipeline = await getDefaultPipeline();
+      const defaultPipeline = await getDefaultPipeline(
+        ctx.activeOrganizationId ?? 1
+      );
       if (defaultPipeline && defaultPipeline.id === input.pipelineId) {
         // Llamamos a updateLeadStatus con el estadoLead del stage
         // (asumiendo que lead.estadoLead coincide con el name del stage).
@@ -406,7 +496,7 @@ export const leadsRouter = router({
   leadPipelineAssignments: protectedProcedure
     .input(z.object({ publicId: z.string() }))
     .query(async ({ ctx, input }) => {
-      const currentUser = toCurrentUser(ctx.user);
+      const currentUser = toCurrentUser(ctx.user, ctx);
       const lead = await loadLeadOrThrow(input.publicId, currentUser);
       const numericLeadId =
         typeof lead.id === "string" ? parseInt(lead.id, 10) : lead.id;
@@ -431,7 +521,7 @@ export const leadsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const currentUser = toCurrentUser(ctx.user);
+      const currentUser = toCurrentUser(ctx.user, ctx);
       const lead = await loadLeadOrThrow(input.publicId, currentUser);
 
       const stage = await getPipelineStage(input.stageId);
@@ -459,7 +549,9 @@ export const leadsRouter = router({
       );
 
       // Si el pipeline es el principal, actualizar el estadoLead denormalizado.
-      const defaultPipeline = await getDefaultPipeline();
+      const defaultPipeline = await getDefaultPipeline(
+        ctx.activeOrganizationId ?? 1
+      );
       if (defaultPipeline && defaultPipeline.id === input.pipelineId) {
         await updateLeadStatusField(numericLeadId, stage.name, ctx.user.id);
       }
@@ -479,7 +571,7 @@ export const leadsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const currentUser = toCurrentUser(ctx.user);
+      const currentUser = toCurrentUser(ctx.user, ctx);
       const lead = await loadLeadOrThrow(input.publicId, currentUser);
       const numericLeadId =
         typeof lead.id === "string" ? parseInt(lead.id, 10) : lead.id;
@@ -493,10 +585,37 @@ export const leadsRouter = router({
       return { success: true };
     }),
 
+  /**
+   * Elimina un lead (y todas sus filas asociadas) por su publicId.
+   * Devuelve 404 si el lead no existe o el usuario no tiene visibilidad.
+   */
+  delete: protectedProcedure
+    .input(z.object({ publicId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const currentUser = toCurrentUser(ctx.user, ctx);
+      const lead = await loadLeadOrThrow(input.publicId, currentUser);
+      const numericLeadId =
+        typeof lead.id === "string" ? parseInt(lead.id, 10) : lead.id;
+      if (!Number.isFinite(numericLeadId)) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "ID de lead inválido.",
+        });
+      }
+      const ok = await db.deleteLeadById(numericLeadId, currentUser);
+      if (!ok) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Lead no encontrado o sin permisos para eliminarlo.",
+        });
+      }
+      return { success: true, publicId: input.publicId };
+    }),
+
   addActivity: protectedProcedure
     .input(leadActivityCreateSchema)
     .mutation(async ({ ctx, input }) => {
-      const currentUser = toCurrentUser(ctx.user);
+      const currentUser = toCurrentUser(ctx.user, ctx);
       const lead = await addLeadActivity(input, currentUser);
 
       if (!lead) {
@@ -513,9 +632,14 @@ export const leadsRouter = router({
   runAutomation: protectedProcedure
     .input(leadIdSchema)
     .mutation(async ({ ctx, input }) => {
-      const currentUser = toCurrentUser(ctx.user);
+      const currentUser = toCurrentUser(ctx.user, ctx);
       const lead = await loadLeadOrThrow(input.publicId, currentUser);
-      const automation = await runLeadAutomation(lead, ctx.user.id);
+      const automation = await runLeadAutomation(
+        lead,
+        ctx.user.id,
+        ctx.activeOrganizationId,
+        "manual_run"
+      );
       const refreshedLead = await loadLeadOrThrow(input.publicId, currentUser);
 
       return {
@@ -592,7 +716,7 @@ export const leadsRouter = router({
       const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
 
       let importedCount = 0;
-      const currentUser = toCurrentUser(ctx.user);
+      const currentUser = toCurrentUser(ctx.user, ctx);
 
       const parseExcelDate = (value: any): number => {
         if (!value) return Date.now() + 7 * 24 * 60 * 60 * 1000;
@@ -750,7 +874,12 @@ export const leadsRouter = router({
 
         const lead = await createLead(leadInput, currentUser);
         if (lead) {
-          await runLeadAutomation(lead, ctx.user.id);
+          await runLeadAutomation(
+            lead,
+            ctx.user.id,
+            ctx.activeOrganizationId,
+            "import"
+          );
           importedCount++;
         }
       }

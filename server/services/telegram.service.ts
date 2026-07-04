@@ -1,13 +1,32 @@
 import axios from "axios";
 import type { Lead } from "../../drizzle/schema";
+import {
+  resolveTelegramConfig,
+  type OrgIntegrations,
+} from "../_core/orgIntegrations";
+import { ENV } from "../_core/env";
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
+/**
+ * Resuelve el botToken a usar. Si se pasa `botTokenOverride`
+ * lo usa; si no, cae al env var. Devuelve "" si no hay
+ * ninguno configurado (los callers deben checkear y abortar).
+ */
+function resolveBotToken(override?: string | null): string {
+  return override ?? process.env.TELEGRAM_BOT_TOKEN ?? "";
+}
 
-const telegramAPI = axios.create({
-  baseURL: `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`,
-  timeout: 10000,
-});
+/**
+ * Crea una instancia de axios con la baseURL del bot.
+ * Si el token es vacío, devuelve null; los callers deben
+ * chequear y no llamar.
+ */
+function makeTelegramClient(botToken: string) {
+  if (!botToken) return null;
+  return axios.create({
+    baseURL: `https://api.telegram.org/bot${botToken}`,
+    timeout: 10000,
+  });
+}
 
 export type TelegramAlertType =
   | "new_lead"
@@ -96,6 +115,7 @@ export function formatTelegramMessage(
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      timeZone: ENV.orgTimezone || "America/Bogota",
     });
   };
 
@@ -165,39 +185,9 @@ export function formatTelegramMessage(
     lines.push(`⏰ Fecha límite: ${fmtDate(lead.fechaLimiteGestion)}`);
   }
 
-  // Valor y desglose
+  // Valor total (sin desglose)
   lines.push("");
   lines.push(`💰 *Valor total: ${fmtMoney(lead.valorTotal)}*`);
-
-  const breakdown: string[] = [];
-  if ((lead.cantidadMultiple ?? 0) > 0 || (lead.precioMultiple ?? 0) > 0) {
-    breakdown.push(
-      `   · ${lead.cantidadMultiple ?? 0} × ${fmtMoney(lead.precioMultiple)} (múltiple)`
-    );
-  }
-  if ((lead.cantidadJunior ?? 0) > 0 || (lead.precioJunior ?? 0) > 0) {
-    breakdown.push(
-      `   · ${lead.cantidadJunior ?? 0} × ${fmtMoney(lead.precioJunior)} (junior)`
-    );
-  }
-  if ((lead.cantidadSenior ?? 0) > 0 || (lead.precioSenior ?? 0) > 0) {
-    breakdown.push(
-      `   · ${lead.cantidadSenior ?? 0} × ${fmtMoney(lead.precioSenior)} (senior)`
-    );
-  }
-  if (
-    (lead.cantidadParqueadero ?? 0) > 0 ||
-    (lead.precioParqueadero ?? 0) > 0
-  ) {
-    breakdown.push(
-      `   · ${lead.cantidadParqueadero ?? 0} × ${fmtMoney(
-        lead.precioParqueadero
-      )} (parqueadero)`
-    );
-  }
-  if (breakdown.length > 0) {
-    lines.push(...breakdown);
-  }
 
   // Detalles de pérdida (si aplica)
   if (alertType === "lead_lost" && lead.motivoPerdido) {
@@ -267,14 +257,24 @@ function contextFromLegacyPayload(
 }
 
 /**
- * Envía una alerta por Telegram al chat global (TELEGRAM_CHAT_ID).
- * Acepta tanto el payload antiguo como el nuevo contexto enriquecido.
+ * Envía una alerta por Telegram al chat global configurado para
+ * la org (o fallback a env si no hay config de org).
+ *
+ * `orgIntegrations`: config de la org activa. Si se omite, usa
+ * solo env vars (backward compatible).
  */
 export async function sendTelegramAlert(
   payloadOrType: TelegramAlertPayload | TelegramAlertType,
-  contextArg?: TelegramAlertContext
+  contextArg?: TelegramAlertContext,
+  orgIntegrations?: OrgIntegrations | null
 ): Promise<void> {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+  const { botToken, chatId } = orgIntegrations
+    ? resolveTelegramConfig(orgIntegrations)
+    : {
+        botToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
+        chatId: process.env.TELEGRAM_CHAT_ID ?? "",
+      };
+  if (!botToken || !chatId) {
     console.warn(
       "[Telegram] Bot token o chat ID no configurados. Alerta no enviada."
     );
@@ -284,7 +284,6 @@ export async function sendTelegramAlert(
   let alertType: TelegramAlertType;
   let ctx: TelegramAlertContext;
 
-  // Detección de firma: si el primer arg es un string, es el nuevo formato
   if (typeof payloadOrType === "string") {
     alertType = payloadOrType;
     ctx = contextArg ?? { lead: emptyLead() };
@@ -295,9 +294,12 @@ export async function sendTelegramAlert(
 
   const message = formatTelegramMessage(alertType, ctx);
 
+  const client = makeTelegramClient(botToken);
+  if (!client) return;
+
   try {
-    await telegramAPI.post("/sendMessage", {
-      chat_id: TELEGRAM_CHAT_ID,
+    await client.post("/sendMessage", {
+      chat_id: chatId,
       text: message,
       parse_mode: "Markdown",
     });
@@ -308,15 +310,18 @@ export async function sendTelegramAlert(
 }
 
 /**
- * Envía una alerta a un agente o destinatario específico (chatId propio).
- * Acepta tanto el payload antiguo como el nuevo contexto enriquecido.
+ * Envía una alerta a un agente o destinatario específico (chatId
+ * propio). Usa el botToken de la org activa o el del env var
+ * si no hay config de org.
  */
 export async function sendTelegramAlertToAgent(
   agentChatId: string,
   payloadOrType: TelegramAlertPayload | TelegramAlertType,
-  contextArg?: TelegramAlertContext
+  contextArg?: TelegramAlertContext,
+  orgIntegrations?: OrgIntegrations | null
 ): Promise<void> {
-  if (!TELEGRAM_BOT_TOKEN) {
+  const botToken = resolveBotToken(orgIntegrations?.telegram.botToken ?? null);
+  if (!botToken) {
     console.warn("[Telegram] Bot token no configurado.");
     return;
   }
@@ -340,8 +345,11 @@ export async function sendTelegramAlertToAgent(
 
   const message = formatTelegramMessage(alertType, ctx);
 
+  const client = makeTelegramClient(botToken);
+  if (!client) return;
+
   try {
-    await telegramAPI.post("/sendMessage", {
+    await client.post("/sendMessage", {
       chat_id: agentChatId,
       text: message,
       parse_mode: "Markdown",

@@ -1,5 +1,6 @@
 import { google } from "googleapis";
-import type { AppSettings, Lead } from "../../drizzle/schema";
+import type { Lead } from "../../drizzle/schema";
+import { resolveCalendarConfig, type OrgIntegrations } from "../_core/orgIntegrations";
 
 export type CalendarSyncResult = {
   status: "disabled" | "synced" | "error" | "skipped";
@@ -33,12 +34,33 @@ function buildEventDescription(lead: Lead) {
   return sections.filter(Boolean).join("\n");
 }
 
-export async function syncLeadCalendarEvent(lead: Lead, settings: AppSettings): Promise<CalendarSyncResult> {
+/**
+ * Sincroniza un lead con Google Calendar usando la config de
+ * integraciones de la org activa.
+ *
+ * - El service account (GOOGLE_SERVICE_ACCOUNT_EMAIL/PRIVATE_KEY)
+ *   es GLOBAL (no se replica por org).
+ * - El calendarId es PER-ORG, viene de orgIntegrations.
+ */
+export async function syncLeadCalendarEvent(
+  lead: Lead,
+  orgIntegrations: OrgIntegrations | null
+): Promise<CalendarSyncResult> {
   const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const privateKey = getGooglePrivateKey();
-  const calendarId = settings.googleCalendarId?.trim();
+  const cfg = orgIntegrations
+    ? resolveCalendarConfig(orgIntegrations)
+    : {
+        enabled: false,
+        calendarId: null,
+        hasServiceAccount: Boolean(
+          process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL &&
+            process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+        ),
+      };
+  const calendarId = cfg.calendarId?.trim();
 
-  if (!settings.calendarSyncEnabled) {
+  if (!cfg.enabled) {
     return {
       status: "disabled",
       action: "skip",
