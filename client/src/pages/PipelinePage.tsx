@@ -536,7 +536,7 @@ export function PipelinePage() {
     { pipelineId: activePipelineId ?? 0 },
     {
       refetchOnWindowFocus: false,
-      enabled: !isPrincipal && activePipelineId != null,
+      enabled: activePipelineId != null,
     }
   );
   const pipelineLeads = (leadsByPipelineQuery.data ?? []) as Array<
@@ -569,14 +569,8 @@ export function PipelinePage() {
     const grouped: Record<number, Lead[]> = {};
     for (const s of stages) grouped[s.id] = [];
 
-    if (isPrincipal) {
-      // Pipeline principal: agrupar por estadoLead (denormalizado).
-      for (const l of allLeads) {
-        const stage = stages.find(s => s.name === l.estadoLead);
-        if (stage) grouped[stage.id].push(l);
-      }
-    } else if (activePipelineId) {
-      // Otros pipelines: agrupar por pipelineStageId de listByPipeline.
+    if (activePipelineId) {
+      // Agrupar leads por pipelineStageId de listByPipeline.
       for (const l of pipelineLeads) {
         if (l.pipelineStageId != null && grouped[l.pipelineStageId]) {
           grouped[l.pipelineStageId].push(l);
@@ -584,7 +578,7 @@ export function PipelinePage() {
       }
     }
     return grouped;
-  }, [stages, allLeads, pipelineLeads, activePipelineId, isPrincipal]);
+  }, [stages, pipelineLeads, activePipelineId]);
 
   const stageStats = useMemo(() => {
     const stats: Record<number, { count: number; value: number }> = {};

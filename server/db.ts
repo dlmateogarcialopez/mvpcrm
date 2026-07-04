@@ -402,33 +402,7 @@ function ensureStatusRequirements(
   motivoPerdido?: string | null,
   motivoPausa?: string | null
 ) {
-  if (status === "perdido") {
-    if (!normalizeText(motivoPerdido)) {
-      throw new Error(
-        "Debes registrar el motivo de pérdida antes de marcar el lead como perdido."
-      );
-    }
-
-    if (!isStructuredLeadReason(motivoPerdido, leadLostReasonOptions)) {
-      throw new Error(
-        "Selecciona un motivo de pérdida válido del catálogo antes de marcar el lead como perdido."
-      );
-    }
-  }
-
-  if (status === "pausado") {
-    if (!normalizeText(motivoPausa)) {
-      throw new Error(
-        "Debes registrar el motivo de pausa antes de pausar el lead."
-      );
-    }
-
-    if (!isStructuredLeadReason(motivoPausa, leadPausedReasonOptions)) {
-      throw new Error(
-        "Selecciona un motivo de pausa válido del catálogo antes de pausar el lead."
-      );
-    }
-  }
+  // Ya no se requiere motivo para perdido/pausado
 }
 
 async function ensureDefaultSettingsRecord() {

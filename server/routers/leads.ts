@@ -14,6 +14,7 @@ import {
   listLeads,
   listLeadsByPipeline,
   listLeadsForExport,
+  listPipelineStages,
   removeLeadFromPipeline,
   setLeadStageInPipeline,
   updateLead,
@@ -300,10 +301,21 @@ export const leadsRouter = router({
       if (input.pipelineAssignments && input.pipelineAssignments.length > 0) {
         // Asignar a los pipelines seleccionados por el usuario
         for (const assignment of input.pipelineAssignments) {
+          let stageId = assignment.stageId;
+          // Si el stageId es 0 (no resuelto aún), buscar la primera fase del pipeline
+          if (!stageId || stageId === 0) {
+            const stages = await listPipelineStages(
+              ctx.activeOrganizationId ?? 1,
+              assignment.pipelineId
+            );
+            const firstStage = stages?.[0];
+            if (firstStage) stageId = firstStage.id;
+            else continue; // skip pipelines sin fases
+          }
           await setLeadStageInPipeline(
             numericLeadId,
             assignment.pipelineId,
-            assignment.stageId,
+            stageId,
             ctx.user.id
           );
         }
@@ -395,29 +407,6 @@ export const leadsRouter = router({
           code: "NOT_FOUND",
           message: "Lead no encontrado o sin permisos para actualizarlo.",
         });
-      }
-
-      // Mantener sincronizado el lead_pipeline_stages del pipeline por defecto.
-      const defaultPipeline = await getDefaultPipeline(
-        ctx.activeOrganizationId ?? 1
-      );
-      if (defaultPipeline) {
-        const stage = await getPipelineStageByName(
-          defaultPipeline.id,
-          lead.estadoLead ?? ""
-        );
-        if (stage) {
-          const numericLeadId =
-            typeof lead.id === "string" ? parseInt(lead.id, 10) : lead.id;
-          if (Number.isFinite(numericLeadId)) {
-            await setLeadStageInPipeline(
-              numericLeadId,
-              defaultPipeline.id,
-              stage.id,
-              ctx.user.id
-            );
-          }
-        }
       }
 
       const automation = await runLeadAutomation(

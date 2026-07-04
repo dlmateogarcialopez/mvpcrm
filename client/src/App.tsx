@@ -34,6 +34,7 @@ function ProtectedDashboardRoutes() {
         <Switch>
           <Route path={"/"} component={Home} />
           <Route path={"/leads"} component={LeadsPage} />
+          <Route path={"/leads/:publicId"} component={LeadsPage} />
           <Route path={"/embudo"} component={PipelinePage} />
           <Route path={"/configuracion"} component={SettingsPage} />
           <Route path={"/embudos/metricas"} component={PipelineMetricsPage} />

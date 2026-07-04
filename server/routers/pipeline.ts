@@ -24,6 +24,14 @@ export const pipelineRouter = router({
       );
     }),
 
+  /**
+   * Devuelve todas las fases activas de TODOS los pipelines de la org.
+   * Usado por el formulario de creación de leads para el selector de pipeline+fase.
+   */
+  listAllStages: protectedProcedure.query(async ({ ctx }) => {
+    return db.listPipelineStages(ctx.activeOrganizationId ?? 1);
+  }),
+
   listActive: protectedProcedure
     .input(z.object({ pipelineId: z.number().optional() }).optional())
     .query(async ({ ctx, input }) => {

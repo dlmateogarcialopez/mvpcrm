@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { useLocation } from "wouter";
+import { useParams } from "wouter";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import {
@@ -350,6 +351,17 @@ function downloadBase64File(
 export default function LeadsPage() {
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
+  const params = useParams();
+
+  // Support both /leads?lead=XXX and /leads/XXX
+  useEffect(() => {
+    const leadId = params.publicId;
+    if (leadId) {
+      setSelectedLeadId(leadId);
+      setMode("edit");
+      setDetailPanelOpen(true);
+    }
+  }, [params.publicId]);
   const settingsQuery = trpc.settings.get.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
@@ -402,18 +414,6 @@ export default function LeadsPage() {
     color: string | null;
   }>;
 
-  // Cuando cambian los pipelines, precargar la selección por defecto
-  useEffect(() => {
-    if (pipelines.length > 0 && pipelineSelections.length === 0) {
-      const defaultId = defaultPipelineQuery.data?.id;
-      if (defaultId) {
-        setPipelineSelections([
-          { pipelineId: defaultId, stageId: 0 }, // stageId se resuelve abajo
-        ]);
-      }
-    }
-  }, [pipelines, defaultPipelineQuery.data?.id]);
-
   // Limpiar selecciones cuando se abre modo creación
   useEffect(() => {
     if (mode === "create") {
@@ -427,7 +427,7 @@ export default function LeadsPage() {
   }, [mode]);
 
   // Cargar todas las fases de todos los pipelines para los selectores
-  const allStagesQuery = trpc.pipeline.list.useQuery(undefined, {
+  const allStagesQuery = trpc.pipeline.listAllStages.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
   const allStages = (allStagesQuery.data ?? []) as Array<{
@@ -972,7 +972,7 @@ export default function LeadsPage() {
     } = normalizedForm;
     await createMutation.mutateAsync({
       ...createPayload,
-      pipelineAssignments: pipelineSelections.filter(s => s.stageId > 0),
+      pipelineAssignments: pipelineSelections.filter(s => s.pipelineId > 0),
     } satisfies LeadCreateInput & { pipelineAssignments?: any });
   }
 
@@ -981,22 +981,24 @@ export default function LeadsPage() {
 
     if (
       status === "perdido" &&
-      !isStructuredLeadReason(selectedLead.motivoPerdido, leadLostReasonOptions)
+      !isStructuredLeadReason(form.motivoPerdido ?? "", leadLostReasonOptions)
     ) {
       toast.error(
         "Antes de marcar como perdido, selecciona un motivo de pérdida del catálogo en el formulario."
       );
+      updateField("estadoLead", "perdido");
       setMode("edit");
       return;
     }
 
     if (
       status === "pausado" &&
-      !isStructuredLeadReason(selectedLead.motivoPausa, leadPausedReasonOptions)
+      !isStructuredLeadReason(form.motivoPausa ?? "", leadPausedReasonOptions)
     ) {
       toast.error(
         "Antes de pausar, selecciona un motivo de pausa del catálogo en el formulario."
       );
+      updateField("estadoLead", "pausado");
       setMode("edit");
       return;
     }
@@ -1008,8 +1010,10 @@ export default function LeadsPage() {
       notasInternas: selectedLead.notasInternas,
       fechaLimiteGestion: selectedLead.fechaLimiteGestion,
       ultimaGestion: Date.now(),
-      motivoPerdido: selectedLead.motivoPerdido,
-      motivoPausa: selectedLead.motivoPausa,
+      motivoPerdido:
+        status === "perdido" ? form.motivoPerdido : selectedLead.motivoPerdido,
+      motivoPausa:
+        status === "pausado" ? form.motivoPausa : selectedLead.motivoPausa,
     });
   }
 
@@ -2377,21 +2381,31 @@ export default function LeadsPage() {
 
             <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap gap-2">
-                {(["contactado", "propuesta", "ganado"] as const).map(
-                  status => (
-                    <button
-                      key={status}
-                      type="button"
-                      onClick={() => handleQuickStatus(status)}
-                      disabled={
-                        !selectedLeadId || updateStatusMutation.isPending
-                      }
-                      className="rounded-xl border px-3 py-2 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Marcar como {leadStatusLabels[status].toLowerCase()}{" "}
-                    </button>
-                  )
-                )}
+                {(
+                  [
+                    "contactado",
+                    "propuesta",
+                    "ganado",
+                    "perdido",
+                    "pausado",
+                  ] as const
+                ).map(status => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => handleQuickStatus(status)}
+                    disabled={!selectedLeadId || updateStatusMutation.isPending}
+                    className={`rounded-xl border px-3 py-2 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 ${
+                      status === "perdido"
+                        ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-900 dark:bg-red-950 dark:text-red-300"
+                        : status === "pausado"
+                          ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300"
+                          : ""
+                    }`}
+                  >
+                    Marcar como {leadStatusLabels[status].toLowerCase()}{" "}
+                  </button>
+                ))}
               </div>
               <div className="flex gap-2">
                 {mode === "edit" ? (
