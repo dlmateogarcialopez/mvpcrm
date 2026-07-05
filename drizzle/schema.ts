@@ -532,7 +532,7 @@ export const automationRecipients = mysqlTable(
     organizationId: int("organizationId").notNull().default(1),
     name: varchar("name", { length: 160 }).notNull(),
     telegramChatId: varchar("telegramChatId", { length: 64 }),
-    email: varchar("email", { length: 320 }),
+    email: varchar("email", { length: 320 }).unique(),
     notes: text("notes"),
     isActive: boolean("isActive").notNull().default(true),
     createdAt: timestamp("createdAt").defaultNow().notNull(),

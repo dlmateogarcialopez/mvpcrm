@@ -398,6 +398,21 @@ export default function LeadsPage() {
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
 
+  const [duplicateMatches, setDuplicateMatches] = useState<
+    Array<{
+      id: number;
+      publicId: string;
+      nombreCliente: string;
+      telefono: string;
+      correo: string;
+      estadoLead: string;
+    }>
+  >([]);
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  const [pendingCreatePayload, setPendingCreatePayload] = useState<
+    (LeadCreateInput & { pipelineAssignments?: any }) | null
+  >(null);
+
   // Pipeline selections for lead creation
   const [pipelineSelections, setPipelineSelections] = useState<
     Array<{ pipelineId: number; stageId: number }>
@@ -547,6 +562,10 @@ export default function LeadsPage() {
 
   const createMutation = trpc.leads.create.useMutation({
     onSuccess: async result => {
+      if (result && "duplicate" in result && result.duplicate) {
+        // Handled in handleSubmit
+        return;
+      }
       toast.success(
         `Oportunidad ${result.lead?.publicId ?? "creada"} registrada correctamente.`
       );
@@ -970,10 +989,38 @@ export default function LeadsPage() {
       ultimaGestion: _ultimaGestion,
       ...createPayload
     } = normalizedForm;
-    await createMutation.mutateAsync({
+    const fullPayload = {
       ...createPayload,
       pipelineAssignments: pipelineSelections.filter(s => s.pipelineId > 0),
-    } satisfies LeadCreateInput & { pipelineAssignments?: any });
+    } satisfies LeadCreateInput & { pipelineAssignments?: any };
+
+    const result = await createMutation.mutateAsync(fullPayload);
+
+    if (result && "duplicate" in result && result.duplicate) {
+      setDuplicateMatches(result.matches as any);
+      setPendingCreatePayload(fullPayload);
+      setShowDuplicateDialog(true);
+      return;
+    }
+  }
+
+  async function handleForceCreate() {
+    if (!pendingCreatePayload) return;
+    setShowDuplicateDialog(false);
+    await createMutation.mutateAsync({
+      ...pendingCreatePayload,
+      forceCreate: true,
+    });
+    setPendingCreatePayload(null);
+  }
+
+  async function handleViewExistingLead(publicId: string) {
+    setShowDuplicateDialog(false);
+    setDuplicateMatches([]);
+    setPendingCreatePayload(null);
+    setSelectedLeadId(publicId);
+    setMode("edit");
+    syncLeadQueryParam(publicId);
   }
 
   async function handleQuickStatus(status: (typeof leadStatusValues)[number]) {
@@ -3037,6 +3084,93 @@ export default function LeadsPage() {
           )}
         </section>
       </div>
+
+      {showDuplicateDialog && duplicateMatches.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-lg rounded-2xl border bg-card p-6 shadow-xl">
+            <div className="mb-4 flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">
+                  Posibles duplicados detectados
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Se encontraron oportunidades con el mismo teléfono o correo.
+                  Revisa antes de continuar.
+                </p>
+              </div>
+            </div>
+
+            <div className="mb-5 space-y-2">
+              {duplicateMatches.map(match => (
+                <div
+                  key={match.publicId}
+                  className="rounded-xl border bg-muted/20 p-3"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">
+                        {match.nombreCliente || "Sin nombre"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {match.publicId}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-medium">
+                      {leadStatusLabels[match.estadoLead] ?? match.estadoLead}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                    {match.telefono && (
+                      <span className="inline-flex items-center gap-1">
+                        <Phone className="h-3 w-3" /> {match.telefono}
+                      </span>
+                    )}
+                    {match.correo && (
+                      <span className="inline-flex items-center gap-1">
+                        <Mail className="h-3 w-3" /> {match.correo}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDuplicateDialog(false);
+                  setDuplicateMatches([]);
+                  setPendingCreatePayload(null);
+                }}
+                className="rounded-xl border px-4 py-2.5 text-sm font-medium transition hover:bg-muted"
+              >
+                Cancelar
+              </button>
+              {duplicateMatches.map(match => (
+                <button
+                  key={match.publicId}
+                  type="button"
+                  onClick={() => handleViewExistingLead(match.publicId)}
+                  className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 transition hover:bg-blue-100"
+                >
+                  Ver {match.publicId}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={handleForceCreate}
+                className="rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-95"
+              >
+                Crear de todas formas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

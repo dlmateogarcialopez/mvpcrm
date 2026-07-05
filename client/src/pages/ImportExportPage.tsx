@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   Download,
   Upload,
@@ -71,7 +71,22 @@ export function ImportExportPage() {
   const [duplicateAction, setDuplicateAction] =
     useState<DuplicateAction>("skip");
   const [showPreview, setShowPreview] = useState(false);
+  const [perRowAction, setPerRowAction] = useState<
+    Record<number, DuplicateAction>
+  >({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  interface DuplicateMatch {
+    publicId: string;
+    nombreCliente: string;
+    telefono: string;
+    correo: string;
+    estadoLead: string;
+  }
+  const [duplicateMap, setDuplicateMap] = useState<Map<number, DuplicateMatch>>(
+    new Map()
+  );
+  const [dupCount, setDupCount] = useState(0);
 
   const downloadTemplateQuery = trpc.leads.downloadTemplate.useQuery(
     undefined,
@@ -107,6 +122,59 @@ export function ImportExportPage() {
     },
     onError: (e: any) => toast.error(`Error al importar: ${e.message}`),
   });
+
+  const [dupRows, setDupRows] = useState<Array<{
+    rowIndex: number;
+    telefono: string | null;
+    correo: string | null;
+  }> | null>(null);
+  const detectDuplicatesQuery = trpc.leads.detectDuplicates.useQuery(
+    dupRows ? { rows: dupRows } : { rows: [] },
+    { enabled: dupRows !== null }
+  );
+
+  // Build dupRows from validation whenever it changes
+  useEffect(() => {
+    if (validation) {
+      const rows = validation.rows
+        .filter(r => r.status !== "error")
+        .map(r => ({
+          rowIndex: r.index,
+          telefono: String(r.data.telefono?.raw ?? "").trim() || null,
+          correo:
+            String(r.data.correo?.raw ?? "")
+              .trim()
+              .toLowerCase() || null,
+        }));
+      setDupRows(rows);
+      setDuplicateMap(new Map());
+      setDupCount(0);
+      setPerRowAction({});
+    } else {
+      setDupRows(null);
+    }
+  }, [validation]);
+
+  // Build duplicateMap from query data
+  useEffect(() => {
+    if (detectDuplicatesQuery.data?.duplicates) {
+      const map = new Map<number, DuplicateMatch>();
+      for (const d of detectDuplicatesQuery.data.duplicates) {
+        const existing = map.get(d.rowIndex);
+        if (!existing) {
+          map.set(d.rowIndex, {
+            publicId: d.publicId,
+            nombreCliente: d.nombreCliente,
+            telefono: d.telefono,
+            correo: d.correo,
+            estadoLead: d.estadoLead,
+          });
+        }
+      }
+      setDuplicateMap(map);
+      setDupCount(map.size);
+    }
+  }, [detectDuplicatesQuery.data]);
 
   const handleDownloadTemplate = () => {
     if (downloadTemplateQuery.data) {
@@ -156,6 +224,12 @@ export function ImportExportPage() {
         manualMapping:
           Object.keys(manualMapping).length > 0 ? manualMapping : undefined,
         duplicateAction,
+        perRowAction:
+          Object.keys(perRowAction).length > 0
+            ? Object.fromEntries(
+                Object.entries(perRowAction).map(([k, v]) => [k, v])
+              )
+            : undefined,
       });
     };
     reader.readAsArrayBuffer(file);
@@ -183,7 +257,7 @@ export function ImportExportPage() {
           <Download className="h-4 w-4" /> 1. Descargar plantilla
         </h2>
         <p className="text-sm text-muted-foreground">
-          Genera un Excel con los 24 campos del sistema y una fila de ejemplo.
+          Genera un Excel con los 25 campos del sistema y una fila de ejemplo.
           Úsalo como base para armar tu archivo.
         </p>
         <Button
@@ -370,10 +444,14 @@ export function ImportExportPage() {
               </div>
             )}
 
-            {/* Selector de acción para duplicados */}
+            {/* Selector de acción por defecto para duplicados */}
             <div className="rounded-lg border p-3 space-y-2">
               <p className="text-xs font-semibold">
-                Si un lead ya existe (mismo teléfono o correo):
+                Acción por defecto si un lead ya existe (mismo teléfono o
+                correo):
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Podés cambiar esta acción por fila en la vista previa.
               </p>
               <div className="flex flex-wrap gap-2">
                 {(
@@ -443,49 +521,109 @@ export function ImportExportPage() {
                         </th>
                       ))}
                       <th className="px-2 py-1 text-left">Notas</th>
+                      <th className="px-2 py-1 text-left">Acción</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {validation.rows.slice(0, 50).map(row => (
-                      <tr
-                        key={row.index}
-                        className={
-                          row.status === "error"
-                            ? "bg-red-50 dark:bg-red-950/20"
-                            : row.status === "warning"
-                              ? "bg-yellow-50 dark:bg-yellow-950/20"
-                              : "bg-green-50/30 dark:bg-green-950/10"
-                        }
-                      >
-                        <td className="px-2 py-1">{row.index + 2}</td>
-                        <td className="px-2 py-1">
-                          {row.status === "ok" && (
-                            <CheckCircle2 className="h-3 w-3 text-green-600" />
-                          )}
-                          {row.status === "warning" && (
-                            <AlertTriangle className="h-3 w-3 text-yellow-600" />
-                          )}
-                          {row.status === "error" && (
-                            <AlertCircle className="h-3 w-3 text-red-600" />
-                          )}
-                        </td>
-                        {recognizedColumns.map(r => (
-                          <td
-                            key={r.systemField}
-                            className="px-2 py-1 truncate max-w-32"
-                          >
-                            {String(row.data[r.systemField]?.raw ?? "")}
+                    {validation.rows.slice(0, 50).map(row => {
+                      const isDup = duplicateMap.has(row.index);
+                      const dupInfo = duplicateMap.get(row.index);
+                      const rowAction =
+                        perRowAction[row.index] ?? duplicateAction;
+                      return (
+                        <tr
+                          key={row.index}
+                          className={
+                            isDup
+                              ? "bg-amber-50 dark:bg-amber-950/25"
+                              : row.status === "error"
+                                ? "bg-red-50 dark:bg-red-950/20"
+                                : row.status === "warning"
+                                  ? "bg-yellow-50 dark:bg-yellow-950/20"
+                                  : "bg-green-50/30 dark:bg-green-950/10"
+                          }
+                        >
+                          <td className="px-2 py-1">{row.index + 2}</td>
+                          <td className="px-2 py-1">
+                            {isDup ? (
+                              <span
+                                className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300"
+                                title={`Duplicado de ${dupInfo?.publicId}`}
+                              >
+                                <AlertTriangle className="h-2.5 w-2.5" /> Dup
+                              </span>
+                            ) : row.status === "ok" ? (
+                              <CheckCircle2 className="h-3 w-3 text-green-600" />
+                            ) : row.status === "warning" ? (
+                              <AlertTriangle className="h-3 w-3 text-yellow-600" />
+                            ) : (
+                              <AlertCircle className="h-3 w-3 text-red-600" />
+                            )}
                           </td>
-                        ))}
-                        <td className="px-2 py-1 text-muted-foreground">
-                          {[...row.errors, ...row.warnings]
-                            .slice(0, 2)
-                            .join(" • ")}
-                        </td>
-                      </tr>
-                    ))}
+                          {recognizedColumns.map(r => (
+                            <td
+                              key={r.systemField}
+                              className="px-2 py-1 truncate max-w-32"
+                            >
+                              {String(row.data[r.systemField]?.raw ?? "")}
+                            </td>
+                          ))}
+                          <td className="px-2 py-1 text-muted-foreground max-w-40 truncate">
+                            {isDup && dupInfo ? (
+                              <span className="text-amber-600 dark:text-amber-400">
+                                Duplicado: {dupInfo.publicId} —{" "}
+                                {dupInfo.nombreCliente || "Sin nombre"}
+                              </span>
+                            ) : (
+                              [...row.errors, ...row.warnings]
+                                .slice(0, 2)
+                                .join(" • ")
+                            )}
+                          </td>
+                          <td className="px-2 py-1">
+                            {isDup ? (
+                              <select
+                                value={rowAction}
+                                onChange={e => {
+                                  const v = e.target.value as DuplicateAction;
+                                  setPerRowAction(prev => ({
+                                    ...prev,
+                                    [row.index]: v,
+                                  }));
+                                }}
+                                className="rounded border bg-background px-1.5 py-0.5 text-[11px]"
+                              >
+                                <option value="skip">Saltar</option>
+                                <option value="update">
+                                  Actualizar {dupInfo?.publicId}
+                                </option>
+                                <option value="create">Crear nuevo</option>
+                              </select>
+                            ) : (
+                              <span className="text-[11px] text-muted-foreground">
+                                {rowAction === "skip"
+                                  ? "Saltar"
+                                  : rowAction === "update"
+                                    ? "Actualizar"
+                                    : "Crear"}
+                                {" (default)"}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
+                {dupCount > 0 && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 p-2 text-center border-t">
+                    <AlertTriangle className="inline h-3 w-3 mr-1" />
+                    {dupCount} fila{dupCount > 1 ? "s" : ""} duplicada
+                    {dupCount > 1 ? "s" : ""} detectada{dupCount > 1 ? "s" : ""}
+                    . Usá la columna "Acción" para decidir qué hacer con cada
+                    una.
+                  </p>
+                )}
                 {validation.rows.length > 50 && (
                   <p className="text-xs text-muted-foreground p-2 text-center">
                     Mostrando 50 de {validation.rows.length} filas.

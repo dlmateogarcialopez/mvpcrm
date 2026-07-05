@@ -321,7 +321,7 @@ export function validateLeadImport(
     for (const header of headers) {
       if (usedHeaders.has(header)) continue;
       const normHeader = normalize(header);
-      const allSynonyms = [field, ...def.synonyms].map(normalize);
+      const allSynonyms = [field, def.label, ...def.synonyms].map(normalize);
       if (allSynonyms.includes(normHeader)) {
         columnToField[header] = field;
         recognized.push({

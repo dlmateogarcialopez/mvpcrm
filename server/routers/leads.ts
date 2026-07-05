@@ -5,6 +5,7 @@ import * as db from "../db";
 import {
   addLeadActivity,
   createLead,
+  findDuplicateLeads,
   getDashboardSnapshot,
   getDefaultPipeline,
   getLeadByPublicId,
@@ -39,6 +40,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { runLeadAutomation } from "../services/leadAutomation";
 import { buildLeadWorkbookBuffer } from "../services/leadExport";
 import { normalizeLeadTravelReason } from "../../shared/leads";
+import { LEAD_IMPORT_FIELDS } from "../services/leadImport";
 
 type RouterUser = Pick<CurrentUser, "id" | "role" | "name" | "email">;
 
@@ -192,6 +194,12 @@ export const leadsRouter = router({
         base64: z.string(),
         manualMapping: z.record(z.string(), z.string()).optional(),
         duplicateAction: z.enum(["update", "create", "skip"]).default("skip"),
+        perRowAction: z
+          .record(
+            z.string().regex(/^\d+$/),
+            z.enum(["skip", "update", "create"])
+          )
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -208,31 +216,48 @@ export const leadsRouter = router({
       let updated = 0;
       let skipped = 0;
       const errors: Array<{ rowIndex: number; reason: string }> = [];
+      const rows: Array<{
+        rowIndex: number;
+        action: "created" | "updated" | "skipped" | "error";
+        publicId?: string;
+        error?: string;
+      }> = [];
 
       for (const row of validation.rows) {
         if (row.status === "error") {
           skipped++;
+          rows.push({
+            rowIndex: row.index,
+            action: "error",
+            error: row.errors.join("; "),
+          });
           continue;
         }
 
-        // Convertir ParsedCell a objeto plano
+        const rowAction =
+          input.perRowAction?.[String(row.index)] ?? input.duplicateAction;
+
         const leadData: Record<string, any> = {};
         for (const [field, cell] of Object.entries(row.data)) {
           leadData[field] = cell.raw;
         }
 
-        // Verificar duplicado por teléfono o correo
         const existingLead = await db.findLeadByPhoneOrEmail(
           leadData.telefono ? String(leadData.telefono) : null,
           leadData.correo ? String(leadData.correo) : null
         );
 
         if (existingLead) {
-          if (input.duplicateAction === "skip") {
+          if (rowAction === "skip") {
             skipped++;
+            rows.push({
+              rowIndex: row.index,
+              action: "skipped",
+              publicId: existingLead.publicId,
+            });
             continue;
           }
-          if (input.duplicateAction === "update") {
+          if (rowAction === "update") {
             try {
               await db.updateLead(
                 {
@@ -242,18 +267,34 @@ export const leadsRouter = router({
                 currentUser
               );
               updated++;
+              rows.push({
+                rowIndex: row.index,
+                action: "updated",
+                publicId: existingLead.publicId,
+              });
             } catch (e: any) {
               errors.push({ rowIndex: row.index, reason: e.message });
+              rows.push({
+                rowIndex: row.index,
+                action: "error",
+                error: e.message,
+              });
             }
             continue;
           }
         }
 
         try {
-          await createLead(leadData as any, currentUser);
+          const newLead = await createLead(leadData as any, currentUser);
           created++;
+          rows.push({
+            rowIndex: row.index,
+            action: "created",
+            publicId: newLead?.publicId,
+          });
         } catch (e: any) {
           errors.push({ rowIndex: row.index, reason: e.message });
+          rows.push({ rowIndex: row.index, action: "error", error: e.message });
         }
       }
 
@@ -262,6 +303,7 @@ export const leadsRouter = router({
         updated,
         skipped,
         errors,
+        rows,
         total: validation.rows.length,
         duplicateAction: input.duplicateAction,
       };
@@ -274,6 +316,7 @@ export const leadsRouter = router({
   create: protectedProcedure
     .input(
       leadCreateSchema.safeExtend({
+        forceCreate: z.boolean().optional(),
         pipelineAssignments: z
           .array(
             z.object({
@@ -286,6 +329,19 @@ export const leadsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const currentUser = toCurrentUser(ctx.user, ctx);
+      const orgId = ctx.activeOrganizationId ?? 1;
+
+      if (!input.forceCreate) {
+        const duplicates = await findDuplicateLeads(
+          input.telefono?.trim() || null,
+          input.correo?.trim().toLowerCase() || null,
+          orgId
+        );
+        if (duplicates.length > 0) {
+          return { duplicate: true, matches: duplicates };
+        }
+      }
+
       const lead = await createLead(input, currentUser);
 
       if (!lead) {
@@ -665,41 +721,47 @@ export const leadsRouter = router({
     }),
 
   downloadTemplate: protectedProcedure.query(async () => {
-    const headers = [
-      "Cliente",
-      "Teléfono",
-      "Correo",
-      "Ciudad",
-      "Empresa",
-      "Motivo de viaje",
-      "Motivo de visita",
-      "Objeción principal",
-      "Cantidad múltiple",
-      "Cantidad junior",
-      "Cantidad senior",
-      "Cantidad parqueadero",
-      "Canal de origen",
-      "Agente responsable",
-      "Notas internas",
-    ];
-
-    const exampleRow = [
-      "Juan Pérez",
-      "3001234567",
-      "juan.perez@ejemplo.com",
-      "Bogotá",
-      "Empresa XYZ",
-      "corporativo",
-      "Reunión de planificación y almuerzo ejecutivo.",
-      "Ninguna",
-      "10",
-      "5",
-      "2",
-      "0",
-      "whatsapp",
-      "Equipo comercial",
-      "Cliente sumamente interesado en el plan corporativo con parqueadero incluido.",
-    ];
+    const fieldEntries = Object.entries(LEAD_IMPORT_FIELDS);
+    const headers = fieldEntries.map(([, f]) => f.label);
+    const exampleRow = fieldEntries.map(([key, f]) => {
+      const examples: Record<string, string> = {
+        nombreCliente: "Juan Pérez",
+        telefono: "3001234567",
+        correo: "juan.perez@ejemplo.com",
+        nombreEmpresa: "Empresa XYZ",
+        ciudad: "Bogotá",
+        fechaVisita: "2025-03-15",
+        motivoVisita: "Reunión de planificación y almuerzo ejecutivo",
+        tipoEvento: "corporativo",
+        objecionPrincipal: "Ninguna",
+        cantidadMultiple: "10",
+        cantidadJunior: "5",
+        cantidadSenior: "2",
+        cantidadParqueadero: "0",
+        precioMultiple: "99000",
+        precioJunior: "69000",
+        precioSenior: "69000",
+        precioParqueadero: "8000",
+        estadoLead: "nuevo",
+        canalOrigen: "whatsapp",
+        agenteResponsable: "Equipo comercial",
+        fechaIngresoLead: "2025-03-15",
+        fechaLimiteGestion: "2025-03-22",
+        motivoPerdido: "",
+        motivoPausa: "",
+        notasInternas:
+          "Cliente interesado en el plan corporativo con parqueadero incluido.",
+      };
+      if (key in examples) return examples[key];
+      switch (f.type) {
+        case "date":
+          return "2025-01-01";
+        case "number":
+          return "0";
+        default:
+          return "";
+      }
+    });
 
     const sheetRows = [headers, exampleRow];
     const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
@@ -721,6 +783,71 @@ export const leadsRouter = router({
       base64: buffer.toString("base64"),
     };
   }),
+
+  detectDuplicates: protectedProcedure
+    .input(
+      z.object({
+        rows: z.array(
+          z.object({
+            rowIndex: z.number(),
+            telefono: z.string().nullable(),
+            correo: z.string().nullable(),
+          })
+        ),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const orgId = ctx.activeOrganizationId ?? 1;
+      const duplicates: Array<{
+        rowIndex: number;
+        publicId: string;
+        nombreCliente: string;
+        telefono: string;
+        correo: string;
+        estadoLead: string;
+      }> = [];
+
+      const seenTelefonos = new Set<string>();
+      const seenCorreos = new Set<string>();
+
+      for (const row of input.rows) {
+        const tel = row.telefono?.trim() || null;
+        const email = row.correo?.trim().toLowerCase() || null;
+
+        // Skip if no searchable fields or already processed same value
+        const telKey = tel ?? "";
+        const emailKey = email ?? "";
+        if (!tel && !email) continue;
+        if (tel && seenTelefonos.has(telKey)) {
+          // Already found duplicates for this phone - mark same rowIndex
+          for (const d of duplicates) {
+            if (d.telefono === tel) {
+              duplicates.push({ ...d, rowIndex: row.rowIndex });
+              break;
+            }
+          }
+          continue;
+        }
+        if (email && seenCorreos.has(emailKey)) {
+          for (const d of duplicates) {
+            if (d.correo === email) {
+              duplicates.push({ ...d, rowIndex: row.rowIndex });
+              break;
+            }
+          }
+          continue;
+        }
+
+        const matches = await findDuplicateLeads(tel, email, orgId);
+        for (const match of matches) {
+          duplicates.push({ rowIndex: row.rowIndex, ...match });
+          if (match.telefono) seenTelefonos.add(match.telefono);
+          if (match.correo) seenCorreos.add(match.correo);
+        }
+      }
+
+      return { duplicates };
+    }),
 
   importSpreadsheet: protectedProcedure
     .input(z.object({ base64: z.string() }))

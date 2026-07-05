@@ -127,3 +127,4 @@ client/public/__manus__/version.json
 
 # Local Docker bind mount data
 docker-data/
+

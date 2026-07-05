@@ -134,6 +134,13 @@
       "when": 1783300000000,
       "tag": "0019_fired_after_visit",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1783400000000,
+      "tag": "0020_users_email_unique",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { nanoid } from "nanoid";
 import {
@@ -3619,6 +3619,47 @@ export async function findLeadByPhoneOrEmail(
     if (found.length > 0) return found[0];
   }
   return null;
+}
+
+export async function findDuplicateLeads(
+  telefono: string | null,
+  correo: string | null,
+  organizationId: number
+): Promise<
+  Array<{
+    id: number;
+    publicId: string;
+    nombreCliente: string;
+    telefono: string;
+    correo: string;
+    estadoLead: string;
+  }>
+> {
+  const db = await getDb();
+  if (!db) return [];
+  if (!telefono && !correo) return [];
+
+  const conditions = [eq(leads.organizationId, organizationId)];
+  const orConditions = [];
+  if (telefono) orConditions.push(eq(leads.telefono, telefono));
+  if (correo) orConditions.push(eq(leads.correo, correo));
+
+  if (orConditions.length === 0) return [];
+
+  conditions.push(or(orConditions[0], ...orConditions.slice(1)));
+
+  return db
+    .select({
+      id: leads.id,
+      publicId: leads.publicId,
+      nombreCliente: leads.nombreCliente,
+      telefono: leads.telefono,
+      correo: leads.correo,
+      estadoLead: leads.estadoLead,
+    })
+    .from(leads)
+    .where(and(...conditions))
+    .limit(5);
 }
 
 /* ============================================================
