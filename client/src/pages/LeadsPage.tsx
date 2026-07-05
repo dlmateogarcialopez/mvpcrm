@@ -7,6 +7,7 @@ import {
   Download,
   FileSpreadsheet,
   Filter,
+  Info,
   Loader2,
   Mail,
   Phone,
@@ -57,6 +58,12 @@ import {
   type LeadSource,
 } from "../../../shared/leads";
 import { trpc } from "../lib/trpc";
+import {
+  LeadCustomFields,
+  LeadFieldDefinitionsEditor,
+  type CustomFieldDef,
+} from "../components/LeadCustomFields";
+import { Step1FormFields } from "../components/Step1FormFields";
 import { LeadPipelineAssignmentsPanel } from "../components/LeadPipelineAssignmentsPanel";
 
 const leadStatusOptions = ["todos", ...leadStatusValues] as const;
@@ -397,6 +404,7 @@ export default function LeadsPage() {
   const [activityDescription, setActivityDescription] = useState("");
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   const [duplicateMatches, setDuplicateMatches] = useState<
     Array<{
@@ -412,6 +420,18 @@ export default function LeadsPage() {
   const [pendingCreatePayload, setPendingCreatePayload] = useState<
     (LeadCreateInput & { pipelineAssignments?: any }) | null
   >(null);
+
+  const [customFieldValues, setCustomFieldValues] = useState<
+    Record<string, any>
+  >({});
+  const fieldDefsQuery = trpc.leads.getLeadFieldDefs.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
+  const fieldDefs = (fieldDefsQuery.data ?? []) as CustomFieldDef[];
+
+  const formLayoutQuery = trpc.leads.getFormLayout.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
 
   // Pipeline selections for lead creation
   const [pipelineSelections, setPipelineSelections] = useState<
@@ -540,6 +560,14 @@ export default function LeadsPage() {
         motivoPerdido: lead.motivoPerdido ?? "",
         motivoPausa: lead.motivoPausa ?? "",
       });
+      const parsedCustom = (lead as any).customDataParsed;
+      if (parsedCustom && typeof parsedCustom === "object") {
+        setCustomFieldValues({ ...parsedCustom });
+      } else {
+        setCustomFieldValues({});
+      }
+    } else if (mode === "create") {
+      setCustomFieldValues({});
     }
   }, [mode, selectedLeadQuery.data]);
 
@@ -862,6 +890,10 @@ export default function LeadsPage() {
     );
   }
 
+  function updateCustomField(key: string, value: any) {
+    setCustomFieldValues(prev => ({ ...prev, [key]: value }));
+  }
+
   function handleAssigneeChange(nextValue: string) {
     const selectedAssignee = assigneeOptions.find(
       member => member.id === Number(nextValue)
@@ -978,6 +1010,10 @@ export default function LeadsPage() {
       const payload: LeadUpdateInput = {
         ...normalizedForm,
         publicId: selectedLeadId,
+        customData:
+          Object.keys(customFieldValues).length > 0
+            ? { ...customFieldValues }
+            : undefined,
       };
       await updateMutation.mutateAsync(payload);
       return;
@@ -991,6 +1027,10 @@ export default function LeadsPage() {
     } = normalizedForm;
     const fullPayload = {
       ...createPayload,
+      customData:
+        Object.keys(customFieldValues).length > 0
+          ? { ...customFieldValues }
+          : undefined,
       pipelineAssignments: pipelineSelections.filter(s => s.pipelineId > 0),
     } satisfies LeadCreateInput & { pipelineAssignments?: any };
 
@@ -1079,13 +1119,21 @@ export default function LeadsPage() {
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1.02fr_1.18fr]">
-      <div className="space-y-6">
+    <div className="space-y-6">
+
         <section className="rounded-[24px] border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">
+              <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
                 Operación comercial diaria
+                <button
+                  type="button"
+                  onClick={() => setShowGuide(true)}
+                  className="inline-flex items-center justify-center rounded-full text-muted-foreground transition hover:text-primary hover:bg-muted/50"
+                  title="Guía del proceso comercial"
+                >
+                  <Info className="h-4 w-4" />
+                </button>
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
                 Registra oportunidades, cotiza rápido y deja claro cuál es el
@@ -1108,104 +1156,6 @@ export default function LeadsPage() {
                 <Plus className="h-4 w-4" />
                 Nueva oportunidad
               </button>
-            </div>
-          </div>
-
-          <div className="mt-5 rounded-2xl border border-dashed bg-primary/5 p-4">
-            <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                  Ruta comercial sugerida
-                </p>
-                <h2 className="mt-1 text-base font-semibold">
-                  Qué significa cada etapa del proceso comercial
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Este resumen está pensado para que cualquier usuario entienda
-                  qué hacer después con una oportunidad sin depender de
-                  capacitación técnica.
-                </p>
-              </div>
-              <p className="text-sm text-muted-foreground lg:max-w-sm">
-                Si una oportunidad queda pausada o perdida, registra el motivo.
-                Si sigue activa, usa la próxima acción y la fecha límite para no
-                dejarla enfriar.
-              </p>
-            </div>
-            <div className="mt-4 grid gap-3 xl:grid-cols-3">
-              {pipelineGuide.map(stage => (
-                <article
-                  key={stage.status}
-                  className="rounded-2xl border bg-background px-4 py-3"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-semibold">
-                      {leadStatusLabels[stage.status]}
-                    </span>
-                    <span className="rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {stage.action}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {stage.description}
-                  </p>
-                </article>
-              ))}
-            </div>
-            <div className="mt-4 grid gap-3 xl:grid-cols-2">
-              {operatorProfiles.map(profile => (
-                <article
-                  key={profile.role}
-                  className="rounded-2xl border bg-background px-4 py-4"
-                >
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                    {profile.role}
-                  </p>
-                  <h3 className="mt-2 text-sm font-semibold">
-                    {profile.title}
-                  </h3>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {profile.summary}
-                  </p>
-                  <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-                    {profile.checklist.map(item => (
-                      <li key={item} className="flex items-start gap-2">
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 text-primary" />
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </article>
-              ))}
-            </div>
-            <div className="mt-4 rounded-2xl border bg-background p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                    Glosario comercial corto
-                  </p>
-                  <h3 className="mt-1 text-sm font-semibold">
-                    Mismo lenguaje para captura, seguimiento y cierre
-                  </h3>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Mantiene el mismo significado en portada, listado, detalle y
-                  exportación.
-                </p>
-              </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                {commercialGlossary.map(item => (
-                  <article
-                    key={item.term}
-                    className="rounded-2xl border bg-muted/20 px-3 py-3"
-                  >
-                    <p className="text-sm font-semibold">{item.term}</p>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      {item.definition}
-                    </p>
-                  </article>
-                ))}
-              </div>
             </div>
           </div>
 
@@ -1634,21 +1584,9 @@ export default function LeadsPage() {
             ))}
           </div>
         </section>
-      </div>
 
-      <div
-        className={`space-y-6 ${detailPanelOpen ? "block" : "hidden xl:block"}`}
-      >
+        <div className="space-y-6">
         <section className="rounded-[24px] border bg-card p-5 shadow-sm">
-          <div className="mb-4 xl:hidden">
-            <button
-              type="button"
-              onClick={() => setDetailPanelOpen(false)}
-              className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition hover:bg-muted"
-            >
-              <X className="h-4 w-4" /> Volver al listado
-            </button>
-          </div>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold tracking-tight">
@@ -1710,220 +1648,32 @@ export default function LeadsPage() {
               </p>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                  1. Contacto y oportunidad
-                </p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Primero registra a la persona contacto, luego define si la
-                  oportunidad es de persona o empresa y finalmente completa el
-                  contexto comercial.
-                </p>
-              </div>
-              <div className="grid gap-4 xl:grid-cols-[1.05fr_1.05fr_0.9fr]">
-                <div className="rounded-2xl border bg-background p-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                      Bloque de contacto
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Datos directos de la persona que atiende el proceso
-                      comercial.
-                    </p>
-                  </div>
-                  <div className="mt-4 grid gap-4">
-                    <label className="grid gap-2 text-sm">
-                      <span className="font-medium">Contacto principal</span>
-                      <input
-                        value={form.nombreCliente}
-                        onChange={event =>
-                          updateField("nombreCliente", event.target.value)
-                        }
-                        className="h-11 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                        placeholder="Nombre completo"
-                      />
-                      {fieldErrors.nombreCliente ? (
-                        <span className="text-xs text-destructive">
-                          {fieldErrors.nombreCliente}
-                        </span>
-                      ) : null}
-                    </label>
-                    <label className="grid gap-2 text-sm">
-                      <span className="font-medium">Teléfono</span>
-                      <input
-                        value={form.telefono}
-                        onChange={event =>
-                          updateField("telefono", event.target.value)
-                        }
-                        className="h-11 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                        placeholder="3001234567"
-                      />
-                      {fieldErrors.telefono ? (
-                        <span className="text-xs text-destructive">
-                          {fieldErrors.telefono}
-                        </span>
-                      ) : null}
-                    </label>
-                    <label className="grid gap-2 text-sm">
-                      <span className="font-medium">Correo</span>
-                      <input
-                        type="email"
-                        value={form.correo}
-                        onChange={event =>
-                          updateField("correo", event.target.value)
-                        }
-                        className="h-11 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                        placeholder="cliente@empresa.com"
-                      />
-                      {fieldErrors.correo ? (
-                        <span className="text-xs text-destructive">
-                          {fieldErrors.correo}
-                        </span>
-                      ) : null}
-                    </label>
-                  </div>
-                </div>
+            <LeadFieldDefinitionsEditor
+              fieldDefs={fieldDefs}
+              onSave={() => {
+                fieldDefsQuery.refetch();
+              }}
+            />
 
-                <div className="rounded-2xl border bg-background p-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                      Clasificación comercial
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Define si la oportunidad se atiende como persona natural o
-                      como empresa para ordenar la operación.
-                    </p>
-                  </div>
-                  <div className="mt-4 grid gap-4">
-                    <label className="grid gap-2 text-sm">
-                      <span className="font-medium">Tipo de registro</span>
-                      <select
-                        value={partyKind}
-                        onChange={event => {
-                          const nextKind = event.target.value as LeadPartyKind;
-                          setPartyKind(nextKind);
-                          if (nextKind === "persona") {
-                            updateField("nombreEmpresa", "");
-                          }
-                        }}
-                        className="h-11 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                      >
-                        {leadPartyKindValues.map(option => (
-                          <option key={option} value={option}>
-                            {leadPartyKindLabels[option]}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {partyKind === "empresa" ? (
-                      <label className="grid gap-2 text-sm">
-                        <span className="font-medium">Empresa</span>
-                        <input
-                          value={form.nombreEmpresa ?? ""}
-                          onChange={event =>
-                            updateField("nombreEmpresa", event.target.value)
-                          }
-                          className="h-11 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                          placeholder="Nombre de la empresa o cuenta"
-                        />
-                        {fieldErrors.nombreEmpresa ? (
-                          <span className="text-xs text-destructive">
-                            {fieldErrors.nombreEmpresa}
-                          </span>
-                        ) : null}
-                      </label>
-                    ) : (
-                      <div className="rounded-2xl border border-dashed bg-muted/30 px-3 py-3 text-sm text-muted-foreground">
-                        El registro se tratará como persona. El nombre de
-                        empresa quedará vacío para mantener la segmentación
-                        limpia.
-                      </div>
-                    )}
-                    <label className="grid gap-2 text-sm">
-                      <span className="font-medium">Ciudad</span>
-                      <input
-                        value={form.ciudad ?? ""}
-                        onChange={event =>
-                          updateField("ciudad", event.target.value)
-                        }
-                        className="h-11 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                        placeholder="Ciudad"
-                      />
-                    </label>
-                    <label className="grid gap-2 text-sm">
-                      <span className="font-medium">Canal de origen</span>
-                      <select
-                        value={form.canalOrigen}
-                        onChange={event =>
-                          updateField(
-                            "canalOrigen",
-                            event.target.value as LeadCreateInput["canalOrigen"]
-                          )
-                        }
-                        className="h-11 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                      >
-                        {leadSourceValues.map(option => (
-                          <option key={option} value={option}>
-                            {leadSourceLabels[option] ?? option}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border bg-background p-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                      Contexto de la oportunidad
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Datos operativos que ubican el momento comercial de la
-                      oportunidad.
-                    </p>
-                  </div>
-                  <div className="mt-4 grid gap-4">
-                    <label className="grid gap-2 text-sm">
-                      <span className="font-medium">
-                        Fecha del evento o reunión
-                      </span>
-                      <input
-                        type="datetime-local"
-                        value={toDatetimeLocalValue(form.fechaVisita)}
-                        onChange={event =>
-                          updateField(
-                            "fechaVisita",
-                            fromDatetimeLocalValue(event.target.value) ??
-                              Date.now()
-                          )
-                        }
-                        className="h-11 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                      />
-                    </label>
-                    <label className="grid gap-2 text-sm">
-                      <span className="font-medium">Motivo de viaje</span>
-                      <select
-                        value={form.tipoEvento}
-                        onChange={event =>
-                          updateField(
-                            "tipoEvento",
-                            event.target.value as LeadCreateInput["tipoEvento"]
-                          )
-                        }
-                        className="h-11 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                      >
-                        {leadTravelReasonValues.map(option => (
-                          <option key={option} value={option}>
-                            {leadTypeLabels[option] ?? option}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <Step1FormFields
+              form={form}
+              partyKind={partyKind}
+              fieldErrors={fieldErrors as any}
+              overrides={formLayoutQuery.data as any}
+              customFields={fieldDefs}
+              onChange={(key, value) => updateField(key as any, value)}
+              onPartyKindChange={nextKind => {
+                const kind = nextKind as LeadPartyKind;
+                setPartyKind(kind);
+                if (kind === "persona") {
+                  setForm(prev => ({ ...prev, nombreEmpresa: "" }));
+                }
+              }}
+              onLayoutSaved={() => {
+                formLayoutQuery.refetch();
+                fieldDefsQuery.refetch();
+              }}
+            />
 
             <div className="space-y-3">
               <div>
@@ -2347,6 +2097,12 @@ export default function LeadsPage() {
                 placeholder="Anota acuerdos, riesgos y contexto útil para la siguiente gestión"
               />
             </label>
+
+            <LeadCustomFields
+              fieldDefs={fieldDefs.filter(f => !f.block)}
+              values={customFieldValues}
+              onChange={updateCustomField}
+            />
 
             {/* --- SECCIÓN DE EMBUDOS --- */}
             {mode === "create" && pipelines.length > 0 && (
@@ -3084,6 +2840,131 @@ export default function LeadsPage() {
           )}
         </section>
       </div>
+
+      {showGuide && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={e => {
+            if (e.target === e.currentTarget) setShowGuide(false);
+          }}
+        >
+          <div className="mx-4 w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl border bg-card p-6 shadow-xl">
+            <div className="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  Ruta comercial sugerida
+                </p>
+                <h2 className="mt-1 text-lg font-semibold">
+                  Qué significa cada etapa del proceso comercial
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground max-w-xl">
+                  Este resumen está pensado para que cualquier usuario entienda
+                  qué hacer después con una oportunidad sin depender de
+                  capacitación técnica.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGuide(false)}
+                className="shrink-0 rounded-full p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <p className="text-sm text-muted-foreground border-b pb-4 mb-5">
+              Si una oportunidad queda pausada o perdida, registra el motivo. Si
+              sigue activa, usa la próxima acción y la fecha límite para no
+              dejarla enfriar.
+            </p>
+
+            <div className="mb-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary mb-3">
+                Etapas
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {pipelineGuide.map((stage, i) => (
+                  <article
+                    key={stage.status}
+                    className="rounded-2xl border bg-muted/10 px-4 py-3 relative overflow-hidden"
+                  >
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-muted-foreground/20" />
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {i + 1} de {pipelineGuide.length}
+                      </span>
+                      <span className="rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {stage.action}
+                      </span>
+                    </div>
+                    <p className="text-sm font-semibold">
+                      {leadStatusLabels[stage.status]}
+                    </p>
+                    <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">
+                      {stage.description}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary mb-3">
+                Rutas de trabajo
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {operatorProfiles.map(profile => (
+                  <article
+                    key={profile.role}
+                    className="rounded-2xl border bg-muted/10 px-4 py-4"
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                      {profile.role}
+                    </p>
+                    <h3 className="mt-2 text-sm font-semibold">
+                      {profile.title}
+                    </h3>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {profile.summary}
+                    </p>
+                    <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                      {profile.checklist.map(item => (
+                        <li key={item} className="flex items-start gap-2">
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 text-primary shrink-0" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary mb-3">
+                Glosario
+              </p>
+              <p className="text-sm text-muted-foreground mb-3">
+                Mismo lenguaje para captura, seguimiento y cierre. Mantiene el
+                significado en portada, listado, detalle y exportación.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {commercialGlossary.map(item => (
+                  <article
+                    key={item.term}
+                    className="rounded-xl border bg-muted/10 px-3 py-3 group transition hover:bg-muted/20"
+                  >
+                    <p className="text-sm font-semibold">{item.term}</p>
+                    <p className="mt-1.5 text-xs text-muted-foreground leading-relaxed">
+                      {item.definition}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showDuplicateDialog && duplicateMatches.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">

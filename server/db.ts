@@ -56,6 +56,17 @@ import {
   type SettingsChangeLogItem,
   type UserRoleUpdateInput,
 } from "../shared/leadSchemas";
+
+export interface CustomFieldDef {
+  key: string;
+  label: string;
+  type: "text" | "number" | "select" | "date";
+  options?: string[];
+  required?: boolean;
+  order: number;
+  block?: string;
+}
+
 import {
   appRoleLabels,
   defaultBusinessSettings,
@@ -111,6 +122,7 @@ export type LeadListItem = Lead & {
   horasDesdeUltimaGestion: number | null;
   isClosed: boolean;
   isOverdue: boolean;
+  customDataParsed: Record<string, any>;
 };
 
 export type LeadDetail = LeadListItem & {
@@ -242,6 +254,11 @@ export function enrichLead(row: Lead): LeadListItem {
     (!!row.fechaLimiteGestion && row.fechaLimiteGestion < now) ||
     (!!row.fechaVisita && row.fechaVisita < now && !isClosed);
 
+  let customDataParsed: Record<string, any> = {};
+  if (row.customData) {
+    try { customDataParsed = JSON.parse(row.customData); } catch {}
+  }
+
   return {
     ...row,
     contacto: buildLeadContactBlock(row),
@@ -250,6 +267,7 @@ export function enrichLead(row: Lead): LeadListItem {
     horasDesdeUltimaGestion,
     isClosed,
     isOverdue,
+    customDataParsed,
   };
 }
 
@@ -729,6 +747,9 @@ function mapLeadToMutableInput(row: Lead): Omit<LeadUpdateInput, "publicId"> {
     notasInternas: row.notasInternas,
     motivoPerdido: row.motivoPerdido,
     motivoPausa: row.motivoPausa,
+    customData: row.customData
+      ? (() => { try { return JSON.parse(row.customData!); } catch { return {}; } })()
+      : undefined,
   };
 }
 
@@ -1225,6 +1246,9 @@ export async function createLead(input: LeadCreateInput, user: CurrentUser) {
       : "Integración desactivada",
     alertPending: alerts.requiereAtencion,
     closedAt: null,
+    customData: (input as any).customData
+      ? JSON.stringify((input as any).customData)
+      : null,
     createdByUserId: user.id,
     updatedByUserId: user.id,
   });
@@ -1400,6 +1424,9 @@ export async function updateLead(input: LeadUpdateInput, user: CurrentUser) {
         : existing.calendarSyncMessage,
       alertPending: alerts.requiereAtencion,
       closedAt: nextClosedAt,
+      customData: (input as any).customData
+        ? JSON.stringify((input as any).customData)
+        : existing.customData,
       updatedByUserId: user.id,
     })
     .where(eq(leads.id, existing.id));
@@ -3904,6 +3931,67 @@ export async function getOrganizationSettings(
     .where(eq(organizationSettings.organizationId, organizationId))
     .limit(1);
   return row ?? null;
+}
+
+export async function getLeadFieldDefs(
+  organizationId: number
+): Promise<CustomFieldDef[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const [row] = await db
+    .select({ leadFieldDefs: organizationSettings.leadFieldDefs })
+    .from(organizationSettings)
+    .where(eq(organizationSettings.organizationId, organizationId))
+    .limit(1);
+  if (!row?.leadFieldDefs) return [];
+  try { return JSON.parse(row.leadFieldDefs); } catch { return []; }
+}
+
+export async function setLeadFieldDefs(
+  organizationId: number,
+  defs: CustomFieldDef[]
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const json = JSON.stringify(defs);
+  await db
+    .insert(organizationSettings)
+    .values({ organizationId, leadFieldDefs: json })
+    .onDuplicateKeyUpdate({ set: { leadFieldDefs: json } });
+}
+
+export interface FormLayoutOverrides {
+  hiddenFields?: string[];
+  fieldLabels?: Record<string, string>;
+  fieldRequired?: Record<string, boolean>;
+  blockAssignments?: Record<string, { block: string; order: number }>;
+}
+
+export async function getFormLayout(
+  organizationId: number
+): Promise<FormLayoutOverrides | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select({ formLayout: organizationSettings.formLayout })
+    .from(organizationSettings)
+    .where(eq(organizationSettings.organizationId, organizationId))
+    .limit(1);
+  if (!row?.formLayout) return null;
+  try { return JSON.parse(row.formLayout); } catch { return null; }
+}
+
+export async function setFormLayout(
+  organizationId: number,
+  overrides: FormLayoutOverrides
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const json = JSON.stringify(overrides);
+  await db
+    .insert(organizationSettings)
+    .values({ organizationId, formLayout: json })
+    .onDuplicateKeyUpdate({ set: { formLayout: json } });
 }
 
 export async function getOrganizationMember(

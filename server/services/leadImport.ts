@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import type { CustomFieldDef } from "../db";
 
 /**
  * Whitelist de campos válidos del sistema para importación.
@@ -251,19 +252,37 @@ function normalize(s: string): string {
     .trim();
 }
 
+function buildMergedFields(customFields?: CustomFieldDef[]) {
+  const merged: Record<string, { label: string; synonyms: string[]; type: "string" | "number" | "date" }> = {
+    ...LEAD_IMPORT_FIELDS,
+  };
+  if (customFields) {
+    for (const cf of customFields) {
+      merged[cf.key] = {
+        label: cf.label,
+        synonyms: [cf.label.toLowerCase(), cf.key],
+        type: cf.type === "select" ? "string" : cf.type as "string" | "number" | "date",
+      };
+    }
+  }
+  return merged;
+}
+
 /**
  * Parsea un buffer de Excel y devuelve un ValidationResult con mapeo automático.
  */
 export function validateLeadImport(
   buffer: Buffer,
-  manualMapping?: Record<string, string>
+  manualMapping?: Record<string, string>,
+  customFields?: CustomFieldDef[]
 ): ValidationResult {
+  const mergedFields = buildMergedFields(customFields);
   const workbook = XLSX.read(buffer, { type: "buffer" });
   const firstSheet = workbook.SheetNames[0];
   if (!firstSheet) {
     return {
       recognized: [],
-      missing: Object.keys(LEAD_IMPORT_FIELDS),
+      missing: Object.keys(mergedFields),
       unknown: [],
       rows: [],
       totalRows: 0,
@@ -278,7 +297,7 @@ export function validateLeadImport(
   if (json.length === 0) {
     return {
       recognized: [],
-      missing: Object.keys(LEAD_IMPORT_FIELDS),
+      missing: Object.keys(mergedFields),
       unknown: [],
       rows: [],
       totalRows: 0,
@@ -300,7 +319,7 @@ export function validateLeadImport(
   const usedHeaders = new Set<string>();
   const columnToField: Record<string, string> = {};
 
-  for (const [field, def] of Object.entries(LEAD_IMPORT_FIELDS)) {
+  for (const [field, def] of Object.entries(mergedFields)) {
     // Si el usuario dio un mapeo manual, usarlo
     if (manualMapping) {
       const excelCol = Object.entries(manualMapping).find(
@@ -340,7 +359,7 @@ export function validateLeadImport(
 
   // Columnas faltantes (campos del sistema que no se mapearon)
   const recognizedFields = new Set(recognized.map(r => r.systemField));
-  const missing = Object.keys(LEAD_IMPORT_FIELDS).filter(
+  const missing = Object.keys(mergedFields).filter(
     f => !recognizedFields.has(f)
   );
 
@@ -358,7 +377,7 @@ export function validateLeadImport(
     for (const [excelCol, fieldName] of Object.entries(columnToField)) {
       const colIndex = headers.indexOf(excelCol);
       const raw = colIndex >= 0 ? row[colIndex] : undefined;
-      const def = LEAD_IMPORT_FIELDS[fieldName];
+      const def = mergedFields[fieldName];
 
       // Validación básica
       let status: CellStatus = "ok";

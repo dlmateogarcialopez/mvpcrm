@@ -92,8 +92,10 @@ export const organizationSettings = mysqlTable("organization_settings", {
   pricing: text("pricing"),
   scoring: text("scoring"),
   meta: text("meta"),
-  integrations: text("integrations"),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+    integrations: text("integrations"),
+    leadFieldDefs: text("leadFieldDefs"),
+    formLayout: text("formLayout"),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 /**
@@ -452,6 +454,7 @@ export const leads = mysqlTable(
     dialingStatus: varchar("dialingStatus", { length: 80 }),
     totalDialAttempts: int("totalDialAttempts").notNull().default(0),
     firedAfterVisitAt: timestamp("firedAfterVisitAt"),
+    customData: text("customData"),
     closedAt: bigint("closedAt", { mode: "number" }),
     createdByUserId: int("createdByUserId")
       .notNull()

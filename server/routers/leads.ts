@@ -9,6 +9,8 @@ import {
   getDashboardSnapshot,
   getDefaultPipeline,
   getLeadByPublicId,
+  getLeadFieldDefs,
+  getFormLayout,
   getPipelineStage,
   getPipelineStageByName,
   listLeadPipelineAssignmentsWithDetails,
@@ -17,6 +19,8 @@ import {
   listLeadsForExport,
   listPipelineStages,
   removeLeadFromPipeline,
+  setLeadFieldDefs,
+  setFormLayout,
   setLeadStageInPipeline,
   updateLead,
   updateLeadStatus,
@@ -140,8 +144,17 @@ export const leadsRouter = router({
     }),
 
   exportSpreadsheet: protectedProcedure.mutation(async ({ ctx }) => {
+    const orgId = ctx.activeOrganizationId ?? 1;
+    const customFields = await getLeadFieldDefs(orgId);
     const rows = await listLeadsForExport(toCurrentUser(ctx.user, ctx));
-    const workbook = buildLeadWorkbookBuffer(rows);
+    const rowsWithCustom = rows.map(row => {
+      const customData = (row as any).customDataParsed ?? {};
+      for (const field of customFields) {
+        (row as any)[field.key] = customData[field.key];
+      }
+      return row;
+    });
+    const workbook = buildLeadWorkbookBuffer(rowsWithCustom, customFields);
     const exportedAt = new Date();
     const stamp = exportedAt.toISOString().slice(0, 19).replace(/[T:]/g, "-");
 
@@ -166,21 +179,32 @@ export const leadsRouter = router({
         manualMapping: z.record(z.string(), z.string()).optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      const orgId = ctx.activeOrganizationId ?? 1;
+      const customFields = await getLeadFieldDefs(orgId);
       const buffer = Buffer.from(input.base64, "base64");
       const result: ValidationResult = validateLeadImport(
         buffer,
-        input.manualMapping
+        input.manualMapping,
+        customFields
       );
-      return {
-        ...result,
-        availableFields: Object.entries(LEAD_IMPORT_FIELDS).map(
+      const mergedAvailable = [
+        ...Object.entries(LEAD_IMPORT_FIELDS).map(
           ([key, def]) => ({
             key,
             label: def.label,
             type: def.type,
           })
         ),
+        ...customFields.map(f => ({
+          key: f.key,
+          label: f.label,
+          type: f.type as string,
+        })),
+      ];
+      return {
+        ...result,
+        availableFields: mergedAvailable,
       };
     }),
 
@@ -203,8 +227,11 @@ export const leadsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const orgId = ctx.activeOrganizationId ?? 1;
+      const customFields = await getLeadFieldDefs(orgId);
+      const customFieldKeys = new Set(customFields.map(f => f.key));
       const buffer = Buffer.from(input.base64, "base64");
-      const validation = validateLeadImport(buffer, input.manualMapping);
+      const validation = validateLeadImport(buffer, input.manualMapping, customFields);
 
       const currentUser = toCurrentUser(ctx.user, ctx);
       const numericUserId =
@@ -238,8 +265,16 @@ export const leadsRouter = router({
           input.perRowAction?.[String(row.index)] ?? input.duplicateAction;
 
         const leadData: Record<string, any> = {};
+        const customValues: Record<string, any> = {};
         for (const [field, cell] of Object.entries(row.data)) {
-          leadData[field] = cell.raw;
+          if (customFieldKeys.has(field)) {
+            customValues[field] = cell.raw;
+          } else {
+            leadData[field] = cell.raw;
+          }
+        }
+        if (Object.keys(customValues).length > 0) {
+          leadData.customData = customValues;
         }
 
         const existingLead = await db.findLeadByPhoneOrEmail(
@@ -720,48 +755,65 @@ export const leadsRouter = router({
       };
     }),
 
-  downloadTemplate: protectedProcedure.query(async () => {
+  downloadTemplate: protectedProcedure.query(async ({ ctx }) => {
+    const orgId = ctx.activeOrganizationId ?? 1;
+    const customFields = await getLeadFieldDefs(orgId);
     const fieldEntries = Object.entries(LEAD_IMPORT_FIELDS);
-    const headers = fieldEntries.map(([, f]) => f.label);
-    const exampleRow = fieldEntries.map(([key, f]) => {
-      const examples: Record<string, string> = {
-        nombreCliente: "Juan Pérez",
-        telefono: "3001234567",
-        correo: "juan.perez@ejemplo.com",
-        nombreEmpresa: "Empresa XYZ",
-        ciudad: "Bogotá",
-        fechaVisita: "2025-03-15",
-        motivoVisita: "Reunión de planificación y almuerzo ejecutivo",
-        tipoEvento: "corporativo",
-        objecionPrincipal: "Ninguna",
-        cantidadMultiple: "10",
-        cantidadJunior: "5",
-        cantidadSenior: "2",
-        cantidadParqueadero: "0",
-        precioMultiple: "99000",
-        precioJunior: "69000",
-        precioSenior: "69000",
-        precioParqueadero: "8000",
-        estadoLead: "nuevo",
-        canalOrigen: "whatsapp",
-        agenteResponsable: "Equipo comercial",
-        fechaIngresoLead: "2025-03-15",
-        fechaLimiteGestion: "2025-03-22",
-        motivoPerdido: "",
-        motivoPausa: "",
-        notasInternas:
-          "Cliente interesado en el plan corporativo con parqueadero incluido.",
-      };
-      if (key in examples) return examples[key];
-      switch (f.type) {
-        case "date":
-          return "2025-01-01";
-        case "number":
-          return "0";
-        default:
-          return "";
-      }
-    });
+    const headers = [
+      ...fieldEntries.map(([, f]) => f.label),
+      ...customFields.map(f => f.label),
+    ];
+    const exampleRow = [
+      ...fieldEntries.map(([key, f]) => {
+        const examples: Record<string, string> = {
+          nombreCliente: "Juan Pérez",
+          telefono: "3001234567",
+          correo: "juan.perez@ejemplo.com",
+          nombreEmpresa: "Empresa XYZ",
+          ciudad: "Bogotá",
+          fechaVisita: "2025-03-15",
+          motivoVisita: "Reunión de planificación y almuerzo ejecutivo",
+          tipoEvento: "corporativo",
+          objecionPrincipal: "Ninguna",
+          cantidadMultiple: "10",
+          cantidadJunior: "5",
+          cantidadSenior: "2",
+          cantidadParqueadero: "0",
+          precioMultiple: "99000",
+          precioJunior: "69000",
+          precioSenior: "69000",
+          precioParqueadero: "8000",
+          estadoLead: "nuevo",
+          canalOrigen: "whatsapp",
+          agenteResponsable: "Equipo comercial",
+          fechaIngresoLead: "2025-03-15",
+          fechaLimiteGestion: "2025-03-22",
+          motivoPerdido: "",
+          motivoPausa: "",
+          notasInternas:
+            "Cliente interesado en el plan corporativo con parqueadero incluido.",
+        };
+        if (key in examples) return examples[key];
+        switch (f.type) {
+          case "date":
+            return "2025-01-01";
+          case "number":
+            return "0";
+          default:
+            return "";
+        }
+      }),
+      ...customFields.map(f => {
+        switch (f.type) {
+          case "date":
+            return "2025-01-01";
+          case "number":
+            return "0";
+          default:
+            return f.options?.[0] ?? "Ejemplo";
+        }
+      }),
+    ];
 
     const sheetRows = [headers, exampleRow];
     const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
@@ -783,6 +835,60 @@ export const leadsRouter = router({
       base64: buffer.toString("base64"),
     };
   }),
+
+  getLeadFieldDefs: protectedProcedure.query(async ({ ctx }) => {
+    const orgId = ctx.activeOrganizationId ?? 1;
+    return getLeadFieldDefs(orgId);
+  }),
+
+  saveLeadFieldDefs: protectedProcedure
+    .input(
+      z.object({
+        fields: z.array(
+          z.object({
+            key: z.string().min(1),
+            label: z.string().min(1),
+            type: z.enum(["text", "number", "select", "date"]),
+            options: z.array(z.string()).optional(),
+            required: z.boolean().optional(),
+            order: z.number(),
+            block: z.string().optional(),
+          })
+        ),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const orgId = ctx.activeOrganizationId ?? 1;
+      await setLeadFieldDefs(orgId, input.fields);
+      return { success: true };
+    }),
+
+  getFormLayout: protectedProcedure.query(async ({ ctx }) => {
+    const orgId = ctx.activeOrganizationId ?? 1;
+    return getFormLayout(orgId);
+  }),
+
+  saveFormLayout: protectedProcedure
+    .input(
+      z.object({
+        overrides: z.object({
+          hiddenFields: z.array(z.string()).optional(),
+          fieldLabels: z.record(z.string(), z.string()).optional(),
+          fieldRequired: z.record(z.string(), z.boolean()).optional(),
+          blockAssignments: z
+            .record(
+              z.string(),
+              z.object({ block: z.string(), order: z.number() })
+            )
+            .optional(),
+        }),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const orgId = ctx.activeOrganizationId ?? 1;
+      await setFormLayout(orgId, input.overrides);
+      return { success: true };
+    }),
 
   detectDuplicates: protectedProcedure
     .input(

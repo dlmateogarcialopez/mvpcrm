@@ -108,6 +108,13 @@ function formatTravelReason(value: string | null | undefined) {
   return leadTypeLabels[normalized] ?? normalized;
 }
 
+function formatCustomValue(value: any): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (typeof value === "boolean") return value ? "Sí" : "No";
+  return "";
+}
+
 const exportColumns: ExportColumn[] = [
   { header: "ID CRM", width: 18, value: row => row.publicId },
   { header: "ID interno", width: 12, value: row => row.id ?? "" },
@@ -175,10 +182,19 @@ const exportColumns: ExportColumn[] = [
   { header: "Actualizado en", width: 26, value: row => formatDateValue(row.updatedAt) },
 ];
 
-export function buildLeadWorkbookBuffer(rows: LeadExportRow[]) {
+export function buildLeadWorkbookBuffer(
+  rows: LeadExportRow[],
+  customFields: { key: string; label: string }[] = []
+) {
   const sheetRows = [
-    exportColumns.map(column => column.header),
-    ...rows.map(row => exportColumns.map(column => column.value(row))),
+    [
+      ...exportColumns.map(column => column.header),
+      ...customFields.map(f => f.label),
+    ],
+    ...rows.map(row => [
+      ...exportColumns.map(column => column.value(row)),
+      ...customFields.map(f => formatCustomValue(row[f.key])),
+    ]),
   ];
 
   const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);

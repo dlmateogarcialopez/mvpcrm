@@ -164,6 +164,7 @@ const leadBaseObjectSchema = z.object({
   leadPartyKind: z.enum(leadPartyKindValues).default("persona"),
   contacto: leadContactBlockSchema.optional(),
   empresa: leadCompanyBlockSchema.optional(),
+  customData: z.record(z.string(), z.unknown()).optional(),
 });
 
 function withLeadPartyValidation<T extends z.ZodTypeAny>(schema: T) {
