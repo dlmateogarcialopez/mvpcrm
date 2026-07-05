@@ -40,21 +40,6 @@ const TRIGGERS = [
   },
   { value: "daily_schedule", label: "Diariamente a las..." },
   { value: "after_visit", label: "Después de la fecha de visita" },
-  {
-    value: "opportunity_won",
-    label: "Cuando un lead pasa a GANADO",
-    superadminOnly: true,
-  },
-  {
-    value: "opportunity_lost",
-    label: "Cuando un lead pasa a PERDIDO",
-    superadminOnly: true,
-  },
-  {
-    value: "opportunity_proposal_sent",
-    label: "Cuando se envía propuesta",
-    superadminOnly: true,
-  },
 ];
 
 const ACTIONS = [

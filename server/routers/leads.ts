@@ -488,18 +488,19 @@ export const leadsRouter = router({
         ctx.user.id
       );
 
-      // Si el pipeline es el principal, actualizar estadoLead denormalizado.
-      const defaultPipeline = await getDefaultPipeline(
-        ctx.activeOrganizationId ?? 1
-      );
-      if (defaultPipeline && defaultPipeline.id === input.pipelineId) {
-        // Llamamos a updateLeadStatus con el estadoLead del stage
-        // (asumiendo que lead.estadoLead coincide con el name del stage).
-        await updateLeadStatusField(numericLeadId, stage.name, ctx.user.id);
-      }
+      // Actualizar estadoLead denormalizado para que las automatizaciones
+      // (status_changed) funcionen en cualquier pipeline, no solo el Principal.
+      await updateLeadStatusField(numericLeadId, stage.name, ctx.user.id);
+      lead.estadoLead = stage.name as any;
 
+      const automation = await runLeadAutomation(
+        lead,
+        ctx.user.id,
+        ctx.activeOrganizationId,
+        "status_changed"
+      );
       const refreshedLead = await loadLeadOrThrow(input.publicId, currentUser);
-      return { lead: refreshedLead };
+      return { lead: refreshedLead, automation };
     }),
 
   /**
@@ -561,15 +562,17 @@ export const leadsRouter = router({
         ctx.user.id
       );
 
-      // Si el pipeline es el principal, actualizar el estadoLead denormalizado.
-      const defaultPipeline = await getDefaultPipeline(
-        ctx.activeOrganizationId ?? 1
-      );
-      if (defaultPipeline && defaultPipeline.id === input.pipelineId) {
-        await updateLeadStatusField(numericLeadId, stage.name, ctx.user.id);
-      }
+      // Actualizar estadoLead para que las automatizaciones funcionen en cualquier pipeline.
+      await updateLeadStatusField(numericLeadId, stage.name, ctx.user.id);
+      lead.estadoLead = stage.name as any;
 
-      return { success: true };
+      const automation = await runLeadAutomation(
+        lead,
+        ctx.user.id,
+        ctx.activeOrganizationId,
+        "status_changed"
+      );
+      return { success: true, automation };
     }),
 
   /**
