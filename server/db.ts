@@ -2299,9 +2299,12 @@ export async function countLeadsInPipeline(
     .limit(1);
   if (!pipe) return 0;
 
-  // Contar leads desde lead_pipeline_stages para todos los pipelines
+  // Contar leads desde lead_pipeline_stages para todos los pipelines.
+  // Usamos selectDistinct porque setLeadStageInPipeline guarda historial
+  // (una fila por cada movimiento), lo cual sirve para métricas pero
+  // inflaría el conteo si contáramos todas las filas.
   const rows = await db
-    .select({ id: leadPipelineStages.id })
+    .selectDistinct({ leadId: leadPipelineStages.leadId })
     .from(leadPipelineStages)
     .where(
       and(

@@ -442,6 +442,7 @@ export function PipelinePage() {
       utils.pipeline.leadCounts.invalidate();
       utils.pipelines.listWithStats.invalidate();
       if (activePipelineId) {
+        utils.leads.listByPipeline.invalidate({ pipelineId: activePipelineId });
         utils.pipelines.metric.invalidate({
           pipelineId: activePipelineId,
           metricType: "funnel" as const,

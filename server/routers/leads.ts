@@ -409,6 +409,30 @@ export const leadsRouter = router({
         });
       }
 
+      // Sincronizar lead_pipeline_stages para que el embudo refleje el cambio visualmente
+      const numericLeadId =
+        typeof lead.id === "string" ? parseInt(lead.id, 10) : lead.id;
+      if (Number.isFinite(numericLeadId)) {
+        const assignments = await listLeadPipelineAssignmentsWithDetails(
+          numericLeadId,
+          currentUser
+        );
+        for (const a of assignments) {
+          const stage = await getPipelineStageByName(
+            a.pipelineId,
+            lead.estadoLead ?? ""
+          );
+          if (stage) {
+            await setLeadStageInPipeline(
+              numericLeadId,
+              a.pipelineId,
+              stage.id,
+              ctx.user.id
+            );
+          }
+        }
+      }
+
       const automation = await runLeadAutomation(
         lead,
         ctx.user.id,
