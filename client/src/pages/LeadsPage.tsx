@@ -64,6 +64,7 @@ import {
   type CustomFieldDef,
 } from "../components/LeadCustomFields";
 import { Step1FormFields } from "../components/Step1FormFields";
+import { Section3FormFields } from "../components/Section3FormFields";
 import { LeadPipelineAssignmentsPanel } from "../components/LeadPipelineAssignmentsPanel";
 
 const leadStatusOptions = ["todos", ...leadStatusValues] as const;
@@ -733,6 +734,10 @@ export default function LeadsPage() {
     }
   };
 
+  const pricingLinesQuery = trpc.leads.getPricingFields.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
+
   const pricingPreview = useMemo(() => {
     const totalPersonas =
       form.cantidadMultiple + form.cantidadJunior + form.cantidadSenior;
@@ -741,20 +746,36 @@ export default function LeadsPage() {
     const subtotalSenior = form.cantidadSenior * form.precioSenior;
     const subtotalParqueadero =
       form.cantidadParqueadero * form.precioParqueadero;
+
+    let customQty = 0;
+    let customSub = 0;
+    const lines = (pricingLinesQuery.data?.lines ?? []) as any[];
+    for (const l of lines) {
+      if (l.isStandard || !l.visible) continue;
+      const qty = Number(customFieldValues[l.cantidadKey] ?? 0);
+      const price = Number(customFieldValues[l.precioKey] ?? l.precioDefault ?? 0);
+      customQty += qty;
+      customSub += qty * price;
+    }
+
     const valorTotal =
-      subtotalMultiple + subtotalJunior + subtotalSenior + subtotalParqueadero;
+      subtotalMultiple + subtotalJunior + subtotalSenior + subtotalParqueadero + customSub;
     const ticketPromedio =
-      totalPersonas > 0 ? Math.round(valorTotal / totalPersonas) : 0;
+      totalPersonas + customQty > 0
+        ? Math.round(valorTotal / (totalPersonas + customQty))
+        : 0;
     return {
-      totalPersonas,
+      totalPersonas: totalPersonas + customQty,
       subtotalMultiple,
       subtotalJunior,
       subtotalSenior,
       subtotalParqueadero,
+      customSub,
+      customQty,
       valorTotal,
       ticketPromedio,
     };
-  }, [form]);
+  }, [form, customFieldValues, pricingLinesQuery.data]);
 
   const leadRows = leadsQuery.data ?? [];
   const selectedLead = selectedLeadQuery.data;
@@ -1723,74 +1744,17 @@ export default function LeadsPage() {
               </div>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                  3. Cotización inicial
-                </p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Completa cantidades y precios para estimar valor, ticket y
-                  comisión de la oportunidad.
-                </p>
-              </div>
-              <div className="rounded-2xl border p-4">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <Sparkles className="h-4 w-4 text-primary" />
-                  Cotización inicial
-                </div>
-                <div className="mt-4 grid gap-4 md:grid-cols-4">
-                  {[
-                    ["cantidadMultiple", "Cantidad múltiple"],
-                    ["cantidadJunior", "Cantidad junior"],
-                    ["cantidadSenior", "Cantidad senior"],
-                    ["cantidadParqueadero", "Parqueaderos"],
-                  ].map(([key, label]) => (
-                    <label key={key} className="grid gap-2 text-sm">
-                      <span className="font-medium">{label}</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={Number(form[key as keyof LeadCreateInput] ?? 0)}
-                        onChange={event =>
-                          updateField(
-                            key as keyof LeadCreateInput,
-                            Number(event.target.value) as never
-                          )
-                        }
-                        className="h-11 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                      />
-                    </label>
-                  ))}
-                  {[
-                    ["precioMultiple", "Precio múltiple"],
-                    ["precioJunior", "Precio junior"],
-                    ["precioSenior", "Precio senior"],
-                    ["precioParqueadero", "Precio parqueadero"],
-                  ].map(([key, label]) => (
-                    <label key={key} className="grid gap-2 text-sm">
-                      <span className="font-medium">{label}</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={Number(form[key as keyof LeadCreateInput] ?? 0)}
-                        onChange={event =>
-                          updateField(
-                            key as keyof LeadCreateInput,
-                            Number(event.target.value) as never
-                          )
-                        }
-                        className="h-11 rounded-xl border bg-background px-3 outline-none transition focus:border-primary"
-                      />
-                    </label>
-                  ))}
-                </div>
-                {fieldErrors.cantidadMultiple ? (
-                  <p className="mt-3 text-xs text-destructive">
-                    {fieldErrors.cantidadMultiple}
-                  </p>
-                ) : null}
-              </div>
-            </div>
+            <Section3FormFields
+              form={form as any}
+              customValues={customFieldValues}
+              onChange={(key, value) => updateField(key as any, value)}
+              onCustomChange={(key, value) => {
+                setCustomFieldValues(prev => ({ ...prev, [key]: value }));
+              }}
+              onLinesChanged={() => {
+                formLayoutQuery.refetch();
+              }}
+            />
 
             <div className="space-y-3">
               <div>

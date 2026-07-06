@@ -1149,6 +1149,9 @@ export async function createLead(input: LeadCreateInput, user: CurrentUser) {
   const settings = await ensureDefaultSettingsRecord();
   const businessSettings = mergeBusinessSettings(settings);
   const fechaIngresoLead = Date.now();
+  const pricingConfig = await getPricingFieldsConfig(user.activeOrgId ?? 1);
+  const pricingLines = getPricingLines(pricingConfig);
+  const customPairs = buildCustomPairs(pricingLines, input as any);
   const metrics = computeLeadMetrics({
     ...input,
     fechaIngresoLead,
@@ -1157,6 +1160,7 @@ export async function createLead(input: LeadCreateInput, user: CurrentUser) {
     minimoPersonasRojo: businessSettings.minimoPersonasRojo,
     minimoValorAmarillo: businessSettings.minimoValorAmarillo,
     minimoValorRojo: businessSettings.minimoValorRojo,
+    customPairs,
   });
   const alerts = getLeadAlertFlags(
     metrics,
@@ -1304,6 +1308,9 @@ export async function updateLead(input: LeadUpdateInput, user: CurrentUser) {
 
   const settings = await ensureDefaultSettingsRecord();
   const businessSettings = mergeBusinessSettings(settings);
+  const pricingConfig = await getPricingFieldsConfig(user.activeOrgId ?? 1);
+  const pricingLines = getPricingLines(pricingConfig);
+  const customPairs = buildCustomPairs(pricingLines, input as any);
   const metrics = computeLeadMetrics({
     ...input,
     scoreAltoThreshold: businessSettings.scoreAltoThreshold,
@@ -1311,6 +1318,7 @@ export async function updateLead(input: LeadUpdateInput, user: CurrentUser) {
     minimoPersonasRojo: businessSettings.minimoPersonasRojo,
     minimoValorAmarillo: businessSettings.minimoValorAmarillo,
     minimoValorRojo: businessSettings.minimoValorRojo,
+    customPairs,
   });
   const normalizedDeadline = normalizeTimestamp(input.fechaLimiteGestion);
   const normalizedNextStep = normalizeText(input.proximaAccion);
@@ -3992,6 +4000,95 @@ export async function setFormLayout(
     .insert(organizationSettings)
     .values({ organizationId, formLayout: json })
     .onDuplicateKeyUpdate({ set: { formLayout: json } });
+}
+
+export interface PricingLine {
+  key: string;
+  label: string;
+  cantidadKey: string;
+  precioKey: string;
+  precioDefault: number;
+  order: number;
+  visible: boolean;
+  isStandard?: boolean;
+}
+
+export const DEFAULT_PRICING_LINES: PricingLine[] = [
+  { key: "multiple", label: "Múltiple", cantidadKey: "cantidadMultiple", precioKey: "precioMultiple", precioDefault: 99000, order: 0, visible: true, isStandard: true },
+  { key: "junior", label: "Junior", cantidadKey: "cantidadJunior", precioKey: "precioJunior", precioDefault: 69000, order: 1, visible: true, isStandard: true },
+  { key: "senior", label: "Senior", cantidadKey: "cantidadSenior", precioKey: "precioSenior", precioDefault: 69000, order: 2, visible: true, isStandard: true },
+  { key: "parqueadero", label: "Parqueadero", cantidadKey: "cantidadParqueadero", precioKey: "precioParqueadero", precioDefault: 8000, order: 3, visible: true, isStandard: true },
+];
+
+export interface PricingFieldsConfig {
+  hiddenLines?: string[];
+  customLines?: Array<{
+    key: string;
+    label: string;
+    precioDefault: number;
+    order: number;
+  }>;
+}
+
+export function getPricingLines(config: PricingFieldsConfig | null): PricingLine[] {
+  const hidden = new Set(config?.hiddenLines ?? []);
+  const lines: PricingLine[] = DEFAULT_PRICING_LINES.map(l => ({
+    ...l,
+    visible: !hidden.has(l.key),
+  }));
+  for (const cl of config?.customLines ?? []) {
+    const key = `cust_${cl.key}`;
+    lines.push({
+      key,
+      label: cl.label,
+      cantidadKey: `${key}_qty`,
+      precioKey: `${key}_price`,
+      precioDefault: cl.precioDefault,
+      order: cl.order + 100,
+      visible: true,
+    });
+  }
+  return lines.sort((a, b) => a.order - b.order);
+}
+
+function buildCustomPairs(
+  lines: PricingLine[],
+  customData: { customData?: Record<string, any> } | null
+): Array<{ cantidad: number; precio: number }> {
+  const cd = customData?.customData ?? {};
+  return lines
+    .filter(l => !l.isStandard && l.visible)
+    .map(l => ({
+      cantidad: Number(cd[l.cantidadKey] ?? 0),
+      precio: Number(cd[l.precioKey] ?? l.precioDefault),
+    }));
+}
+
+export async function getPricingFieldsConfig(
+  organizationId: number
+): Promise<PricingFieldsConfig | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select({ pricingFields: organizationSettings.pricingFields })
+    .from(organizationSettings)
+    .where(eq(organizationSettings.organizationId, organizationId))
+    .limit(1);
+  if (!row?.pricingFields) return null;
+  try { return JSON.parse(row.pricingFields); } catch { return null; }
+}
+
+export async function setPricingFieldsConfig(
+  organizationId: number,
+  config: PricingFieldsConfig
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const json = JSON.stringify(config);
+  await db
+    .insert(organizationSettings)
+    .values({ organizationId, pricingFields: json })
+    .onDuplicateKeyUpdate({ set: { pricingFields: json } });
 }
 
 export async function getOrganizationMember(

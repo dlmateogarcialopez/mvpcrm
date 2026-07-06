@@ -95,6 +95,7 @@ export const organizationSettings = mysqlTable("organization_settings", {
     integrations: text("integrations"),
     leadFieldDefs: text("leadFieldDefs"),
     formLayout: text("formLayout"),
+    pricingFields: text("pricingFields"),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 

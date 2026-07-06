@@ -13,6 +13,9 @@ import {
   getFormLayout,
   getPipelineStage,
   getPipelineStageByName,
+  getPricingFieldsConfig,
+  getPricingLines,
+  DEFAULT_PRICING_LINES,
   listLeadPipelineAssignmentsWithDetails,
   listLeads,
   listLeadsByPipeline,
@@ -21,6 +24,7 @@ import {
   removeLeadFromPipeline,
   setLeadFieldDefs,
   setFormLayout,
+  setPricingFieldsConfig,
   setLeadStageInPipeline,
   updateLead,
   updateLeadStatus,
@@ -44,7 +48,104 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { runLeadAutomation } from "../services/leadAutomation";
 import { buildLeadWorkbookBuffer } from "../services/leadExport";
 import { normalizeLeadTravelReason } from "../../shared/leads";
-import { LEAD_IMPORT_FIELDS } from "../services/leadImport";
+
+const FIELD_DISPLAY_ORDER: string[] = [
+  "nombreCliente",
+  "telefono",
+  "correo",
+  "nombreEmpresa",
+  "ciudad",
+  "canalOrigen",
+  "fechaVisita",
+  "tipoEvento",
+  "motivoVisita",
+  "objecionPrincipal",
+  "cantidadMultiple",
+  "cantidadJunior",
+  "cantidadSenior",
+  "cantidadParqueadero",
+  "precioMultiple",
+  "precioJunior",
+  "precioSenior",
+  "precioParqueadero",
+  "estadoLead",
+  "agenteResponsable",
+  "fechaIngresoLead",
+  "fechaLimiteGestion",
+  "motivoPerdido",
+  "motivoPausa",
+  "notasInternas",
+];
+
+const BLOCK_INSERT_AFTER: Record<string, string> = {
+  correo: "contacto",
+  canalOrigen: "clasificacion",
+  tipoEvento: "contexto",
+};
+
+interface FieldColumn {
+  key: string;
+  label: string;
+  type: string;
+  isCustom?: boolean;
+  isPricing?: boolean;
+}
+
+function buildTemplateFieldOrder(
+  customFields: any[],
+  pricingFieldDefs: FieldColumn[]
+): FieldColumn[] {
+  const result: FieldColumn[] = [];
+  const keyMap = new Map(Object.entries(LEAD_IMPORT_FIELDS));
+  const seen = new Set<string>();
+  const customByBlock: Record<string, any[]> = {};
+  const unblocked: any[] = [];
+
+  for (const cf of customFields) {
+    if (cf.block) {
+      (customByBlock[cf.block] ??= []).push(cf);
+    } else {
+      unblocked.push(cf);
+    }
+  }
+
+  for (const block of Object.keys(customByBlock)) {
+    customByBlock[block].sort((a: any, b: any) => (a.order ?? 99) - (b.order ?? 99));
+  }
+
+  function pushField(key: string, label: string, type: string, meta?: Partial<FieldColumn>) {
+    result.push({ key, label, type, ...meta });
+    seen.add(key);
+  }
+
+  for (const key of FIELD_DISPLAY_ORDER) {
+    const def = keyMap.get(key);
+    if (def) pushField(key, def.label, def.type);
+
+    if (BLOCK_INSERT_AFTER[key]) {
+      const blockFields = customByBlock[BLOCK_INSERT_AFTER[key]] ?? [];
+      for (const cf of blockFields) {
+        pushField(cf.key, cf.label, cf.type, { isCustom: true });
+      }
+    }
+
+    if (key === "precioParqueadero") {
+      for (const pf of pricingFieldDefs) {
+        pushField(pf.key, pf.label, pf.type, { isPricing: true });
+      }
+    }
+  }
+
+  for (const cf of unblocked) {
+    pushField(cf.key, cf.label, cf.type, { isCustom: true });
+  }
+
+  for (const [key, def] of Object.entries(LEAD_IMPORT_FIELDS)) {
+    if (!seen.has(key)) pushField(key, def.label, def.type);
+  }
+
+  return result;
+}
 
 type RouterUser = Pick<CurrentUser, "id" | "role" | "name" | "email">;
 
@@ -146,15 +247,29 @@ export const leadsRouter = router({
   exportSpreadsheet: protectedProcedure.mutation(async ({ ctx }) => {
     const orgId = ctx.activeOrganizationId ?? 1;
     const customFields = await getLeadFieldDefs(orgId);
+    const pricingConfig = await getPricingFieldsConfig(orgId);
+    const pricingLines = getPricingLines(pricingConfig);
+    const customPricingLines = pricingLines.filter(l => !l.isStandard && l.visible);
+    const pricingFieldDefs: FieldColumn[] = customPricingLines.flatMap(l => [
+      { key: l.cantidadKey, label: `${l.label} (cantidad)`, type: "number" },
+      { key: l.precioKey, label: `${l.label} (precio)`, type: "number" },
+    ]);
+    const columns = buildTemplateFieldOrder(customFields, pricingFieldDefs);
     const rows = await listLeadsForExport(toCurrentUser(ctx.user, ctx));
     const rowsWithCustom = rows.map(row => {
-      const customData = (row as any).customDataParsed ?? {};
-      for (const field of customFields) {
-        (row as any)[field.key] = customData[field.key];
+      const cd = (row as any).customDataParsed ?? {};
+      for (const col of columns) {
+        if (col.isPricing) {
+          (row as any)[col.key] = cd[col.key] ?? (col.key.endsWith("_price") ? 
+            customPricingLines.find(l => l.precioKey === col.key)?.precioDefault ?? 0 : 0);
+        } else if (col.isCustom) {
+          (row as any)[col.key] = cd[col.key];
+        }
       }
       return row;
     });
-    const workbook = buildLeadWorkbookBuffer(rowsWithCustom, customFields);
+    const allExportFields = columns.map(c => ({ key: c.key, label: c.label }));
+    const workbook = buildLeadWorkbookBuffer(rowsWithCustom, allExportFields);
     const exportedAt = new Date();
     const stamp = exportedAt.toISOString().slice(0, 19).replace(/[T:]/g, "-");
 
@@ -182,26 +297,28 @@ export const leadsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.activeOrganizationId ?? 1;
       const customFields = await getLeadFieldDefs(orgId);
+      const pricingConfig = await getPricingFieldsConfig(orgId);
+      const pricingLines = getPricingLines(pricingConfig);
+      const customPricingLines = pricingLines.filter(l => !l.isStandard && l.visible);
+      const pricingFieldDefs: FieldColumn[] = customPricingLines.flatMap(l => [
+        { key: l.cantidadKey, label: `${l.label} (cantidad)`, type: "number" },
+        { key: l.precioKey, label: `${l.label} (precio)`, type: "number" },
+      ]);
+      const columns = buildTemplateFieldOrder(customFields, pricingFieldDefs);
+      const allCustomFields = columns
+        .filter(c => c.isCustom || c.isPricing)
+        .map(c => ({ key: c.key, label: c.label, type: c.type, synonyms: [c.key, c.label.toLowerCase()] }));
       const buffer = Buffer.from(input.base64, "base64");
       const result: ValidationResult = validateLeadImport(
         buffer,
         input.manualMapping,
-        customFields
+        allCustomFields
       );
-      const mergedAvailable = [
-        ...Object.entries(LEAD_IMPORT_FIELDS).map(
-          ([key, def]) => ({
-            key,
-            label: def.label,
-            type: def.type,
-          })
-        ),
-        ...customFields.map(f => ({
-          key: f.key,
-          label: f.label,
-          type: f.type as string,
-        })),
-      ];
+      const mergedAvailable = columns.map(c => ({
+        key: c.key,
+        label: c.label,
+        type: c.type,
+      }));
       return {
         ...result,
         availableFields: mergedAvailable,
@@ -229,9 +346,22 @@ export const leadsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.activeOrganizationId ?? 1;
       const customFields = await getLeadFieldDefs(orgId);
-      const customFieldKeys = new Set(customFields.map(f => f.key));
+      const pricingConfig = await getPricingFieldsConfig(orgId);
+      const pricingLines = getPricingLines(pricingConfig);
+      const customPricingLines = pricingLines.filter(l => !l.isStandard && l.visible);
+      const pricingFieldDefs: FieldColumn[] = customPricingLines.flatMap(l => [
+        { key: l.cantidadKey, label: `${l.label} (cantidad)`, type: "number" },
+        { key: l.precioKey, label: `${l.label} (precio)`, type: "number" },
+      ]);
+      const columns = buildTemplateFieldOrder(customFields, pricingFieldDefs);
+      const customFieldKeys = new Set(
+        columns.filter(c => c.isCustom || c.isPricing).map(c => c.key)
+      );
+      const allCustomFields = columns
+        .filter(c => c.isCustom || c.isPricing)
+        .map(c => ({ key: c.key, label: c.label, type: c.type, synonyms: [c.key, c.label.toLowerCase()] }));
       const buffer = Buffer.from(input.base64, "base64");
-      const validation = validateLeadImport(buffer, input.manualMapping, customFields);
+      const validation = validateLeadImport(buffer, input.manualMapping, allCustomFields);
 
       const currentUser = toCurrentUser(ctx.user, ctx);
       const numericUserId =
@@ -755,65 +885,62 @@ export const leadsRouter = router({
       };
     }),
 
-  downloadTemplate: protectedProcedure.query(async ({ ctx }) => {
+  downloadTemplate: protectedProcedure.mutation(async ({ ctx }) => {
     const orgId = ctx.activeOrganizationId ?? 1;
     const customFields = await getLeadFieldDefs(orgId);
-    const fieldEntries = Object.entries(LEAD_IMPORT_FIELDS);
-    const headers = [
-      ...fieldEntries.map(([, f]) => f.label),
-      ...customFields.map(f => f.label),
-    ];
-    const exampleRow = [
-      ...fieldEntries.map(([key, f]) => {
-        const examples: Record<string, string> = {
-          nombreCliente: "Juan Pérez",
-          telefono: "3001234567",
-          correo: "juan.perez@ejemplo.com",
-          nombreEmpresa: "Empresa XYZ",
-          ciudad: "Bogotá",
-          fechaVisita: "2025-03-15",
-          motivoVisita: "Reunión de planificación y almuerzo ejecutivo",
-          tipoEvento: "corporativo",
-          objecionPrincipal: "Ninguna",
-          cantidadMultiple: "10",
-          cantidadJunior: "5",
-          cantidadSenior: "2",
-          cantidadParqueadero: "0",
-          precioMultiple: "99000",
-          precioJunior: "69000",
-          precioSenior: "69000",
-          precioParqueadero: "8000",
-          estadoLead: "nuevo",
-          canalOrigen: "whatsapp",
-          agenteResponsable: "Equipo comercial",
-          fechaIngresoLead: "2025-03-15",
-          fechaLimiteGestion: "2025-03-22",
-          motivoPerdido: "",
-          motivoPausa: "",
-          notasInternas:
-            "Cliente interesado en el plan corporativo con parqueadero incluido.",
-        };
-        if (key in examples) return examples[key];
-        switch (f.type) {
-          case "date":
-            return "2025-01-01";
-          case "number":
-            return "0";
-          default:
-            return "";
+    const pricingConfig = await getPricingFieldsConfig(orgId);
+    const pricingLines = getPricingLines(pricingConfig);
+    const customPricingLines = pricingLines.filter(l => !l.isStandard && l.visible);
+    const pricingFieldDefs: FieldColumn[] = customPricingLines.flatMap(l => [
+      { key: l.cantidadKey, label: `${l.label} (cantidad)`, type: "number", isPricing: true },
+      { key: l.precioKey, label: `${l.label} (precio)`, type: "number", isPricing: true },
+    ]);
+    const columns = buildTemplateFieldOrder(customFields, pricingFieldDefs);
+    const headers = columns.map(c => c.label);
+    const exampleRow = columns.map(c => {
+      const examples: Record<string, string> = {
+        nombreCliente: "Juan Pérez",
+        telefono: "3001234567",
+        correo: "juan.perez@ejemplo.com",
+        nombreEmpresa: "Empresa XYZ",
+        ciudad: "Bogotá",
+        fechaVisita: "2025-03-15",
+        motivoVisita: "Reunión de planificación y almuerzo ejecutivo",
+        tipoEvento: "corporativo",
+        objecionPrincipal: "Ninguna",
+        cantidadMultiple: "10",
+        cantidadJunior: "5",
+        cantidadSenior: "2",
+        cantidadParqueadero: "0",
+        precioMultiple: "99000",
+        precioJunior: "69000",
+        precioSenior: "69000",
+        precioParqueadero: "8000",
+        estadoLead: "nuevo",
+        canalOrigen: "whatsapp",
+        agenteResponsable: "Equipo comercial",
+        fechaIngresoLead: "2025-03-15",
+        fechaLimiteGestion: "2025-03-22",
+        motivoPerdido: "",
+        motivoPausa: "",
+        notasInternas:
+          "Cliente interesado en el plan corporativo con parqueadero incluido.",
+      };
+      if (c.key in examples) return examples[c.key];
+      if (c.isPricing) return c.key.endsWith("_qty") || c.key.endsWith("_price") && !c.key.includes("cantidad") ? String(
+        customPricingLines.find(l => l.precioKey === c.key)?.precioDefault ?? 0
+      ) : "0";
+      if (c.isCustom) {
+        const def = customFields.find(f => f.key === c.key);
+        if (!def) return "";
+        switch (def.type) {
+          case "date": return "2025-01-01";
+          case "number": return "0";
+          default: return def.options?.[0] ?? "Ejemplo";
         }
-      }),
-      ...customFields.map(f => {
-        switch (f.type) {
-          case "date":
-            return "2025-01-01";
-          case "number":
-            return "0";
-          default:
-            return f.options?.[0] ?? "Ejemplo";
-        }
-      }),
-    ];
+      }
+      return "0";
+    });
 
     const sheetRows = [headers, exampleRow];
     const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
@@ -887,6 +1014,37 @@ export const leadsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const orgId = ctx.activeOrganizationId ?? 1;
       await setFormLayout(orgId, input.overrides);
+      return { success: true };
+    }),
+
+  getPricingFields: protectedProcedure.query(async ({ ctx }) => {
+    const orgId = ctx.activeOrganizationId ?? 1;
+    const config = await getPricingFieldsConfig(orgId);
+    return { lines: getPricingLines(config) };
+  }),
+
+  savePricingFields: protectedProcedure
+    .input(
+      z.object({
+        hiddenLines: z.array(z.string()).optional(),
+        customLines: z
+          .array(
+            z.object({
+              key: z.string().min(1),
+              label: z.string().min(1),
+              precioDefault: z.number().min(0),
+              order: z.number(),
+            })
+          )
+          .optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const orgId = ctx.activeOrganizationId ?? 1;
+      await setPricingFieldsConfig(orgId, {
+        hiddenLines: input.hiddenLines,
+        customLines: input.customLines,
+      });
       return { success: true };
     }),
 

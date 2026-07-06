@@ -88,12 +88,13 @@ export function ImportExportPage() {
   );
   const [dupCount, setDupCount] = useState(0);
 
-  const downloadTemplateQuery = trpc.leads.downloadTemplate.useQuery(
-    undefined,
-    {
-      refetchOnWindowFocus: false,
-    }
-  );
+  const downloadTemplateMutation = trpc.leads.downloadTemplate.useMutation({
+    onSuccess: (data: any) => {
+      base64ToBlobUrl(data.base64, data.mimeType, data.fileName);
+      toast.success("Plantilla descargada");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
   const exportSpreadsheetMutation = trpc.leads.exportSpreadsheet.useMutation({
     onSuccess: (data: any) => {
       base64ToBlobUrl(data.base64, data.mimeType, data.fileName);
@@ -177,11 +178,7 @@ export function ImportExportPage() {
   }, [detectDuplicatesQuery.data]);
 
   const handleDownloadTemplate = () => {
-    if (downloadTemplateQuery.data) {
-      const d = downloadTemplateQuery.data as any;
-      base64ToBlobUrl(d.base64, d.mimeType, d.fileName);
-      toast.success("Plantilla descargada");
-    }
+    downloadTemplateMutation.mutate();
   };
 
   const handleExportAll = () => {
@@ -262,11 +259,11 @@ export function ImportExportPage() {
         </p>
         <Button
           onClick={handleDownloadTemplate}
-          disabled={downloadTemplateQuery.isLoading}
+          disabled={downloadTemplateMutation.isPending}
           className="gap-2"
         >
           <Download className="h-4 w-4" />
-          {downloadTemplateQuery.isLoading
+          {downloadTemplateMutation.isPending
             ? "Generando..."
             : "Generar plantilla"}
         </Button>

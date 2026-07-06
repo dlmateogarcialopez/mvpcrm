@@ -202,6 +202,8 @@ export type LeadComputationInput = {
   minimoPersonasRojo?: number;
   minimoValorAmarillo?: number;
   minimoValorRojo?: number;
+  visibleStandardKeys?: string[];
+  customPairs?: Array<{ cantidad: number; precio: number }>;
 };
 
 export type LeadBusinessSettings = {
@@ -591,9 +593,22 @@ export function computeLeadMetrics(input: LeadComputationInput) {
   const subtotalJunior = cantidadJunior * precioJunior;
   const subtotalSenior = cantidadSenior * precioSenior;
   const subtotalParqueadero = cantidadParqueadero * precioParqueadero;
-  const totalPersonas = cantidadMultiple + cantidadJunior + cantidadSenior;
+
+  const customQtyTotal = (input.customPairs ?? []).reduce(
+    (sum, p) => sum + Math.max(0, Math.floor(toSafeNumber(p.cantidad))),
+    0
+  );
+  const customSubtotal = (input.customPairs ?? []).reduce(
+    (sum, p) =>
+      sum +
+      Math.max(0, Math.floor(toSafeNumber(p.cantidad))) *
+        Math.max(0, Math.round(toSafeNumber(p.precio))),
+    0
+  );
+
+  const totalPersonas = cantidadMultiple + cantidadJunior + cantidadSenior + customQtyTotal;
   const valorTotal =
-    subtotalMultiple + subtotalJunior + subtotalSenior + subtotalParqueadero;
+    subtotalMultiple + subtotalJunior + subtotalSenior + subtotalParqueadero + customSubtotal;
   const ticketPromedio =
     totalPersonas > 0 ? Math.round(valorTotal / totalPersonas) : 0;
 
