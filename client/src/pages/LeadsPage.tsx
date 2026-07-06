@@ -58,6 +58,7 @@ import {
   type LeadSource,
 } from "../../../shared/leads";
 import { trpc } from "../lib/trpc";
+import { EditableText } from "../components/EditableText";
 import {
   LeadCustomFields,
   LeadFieldDefinitionsEditor,
@@ -1146,7 +1147,7 @@ export default function LeadsPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-                Operación comercial diaria
+                <EditableText storageKey="page.title" defaultText="Operación comercial diaria" as="span" />
                 <button
                   type="button"
                   onClick={() => setShowGuide(true)}
@@ -1157,8 +1158,11 @@ export default function LeadsPage() {
                 </button>
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Registra oportunidades, cotiza rápido y deja claro cuál es el
-                próximo paso para que ninguna se enfríe.
+                <EditableText
+                  storageKey="page.subtitle"
+                  defaultText="Registra oportunidades, cotiza rápido y deja claro cuál es el próximo paso para que ninguna se enfríe."
+                  as="span"
+                />
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-3">
@@ -1564,11 +1568,14 @@ export default function LeadsPage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold tracking-tight">
-                Resumen comercial
+                <EditableText storageKey="summary.title" defaultText="Resumen comercial" as="span" />
               </h2>
               <p className="text-sm text-muted-foreground">
-                Revisa valor estimado, ticket y comisión antes de guardar o
-                actualizar la oportunidad.
+                <EditableText
+                  storageKey="summary.subtitle"
+                  defaultText="Revisa valor estimado, ticket y comisión antes de guardar o actualizar la oportunidad."
+                  as="span"
+                />
               </p>
             </div>
             <div className="rounded-2xl border bg-muted/20 px-4 py-3 text-right text-sm">
@@ -1611,11 +1618,14 @@ export default function LeadsPage() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold tracking-tight">
-                Resumen comercial
+                <EditableText storageKey="summary.title" defaultText="Resumen comercial" as="span" />
               </h2>
               <p className="text-sm text-muted-foreground">
-                Consulta contacto, siguiente paso, valor, prioridad e historial
-                de la oportunidad seleccionada desde un solo lugar.
+                <EditableText
+                  storageKey="detail.subtitle"
+                  defaultText="Consulta contacto, siguiente paso, valor, prioridad e historial de la oportunidad seleccionada desde un solo lugar."
+                  as="span"
+                />
               </p>
             </div>
             {selectedLeadId ? (

@@ -222,7 +222,7 @@ export const leadCreateSchema = withLeadPartyValidation(leadBaseObjectSchema);
 export const leadUpdateSchema = withLeadPartyValidation(
   leadBaseObjectSchema.safeExtend({
     publicId: trimmedText(32).min(4),
-    estadoLead: z.enum(leadStatusValues).default("nuevo"),
+    estadoLead: z.string().default("nuevo"),
     fechaIngresoLead: positiveTimestamp.optional().nullable(),
     ultimaGestion: positiveTimestamp.optional().nullable(),
   }),
@@ -230,7 +230,7 @@ export const leadUpdateSchema = withLeadPartyValidation(
 
 export const leadStatusUpdateSchema = z.object({
   publicId: trimmedText(32).min(4),
-  estadoLead: z.enum(leadStatusValues),
+  estadoLead: z.string(),
   proximaAccion: nullableText(240).default(""),
   notasInternas: nullableText(2000).default(""),
   fechaLimiteGestion: positiveTimestamp.optional().nullable(),

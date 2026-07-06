@@ -48,6 +48,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { runLeadAutomation } from "../services/leadAutomation";
 import { buildLeadWorkbookBuffer } from "../services/leadExport";
 import { normalizeLeadTravelReason } from "../../shared/leads";
+import { requireRole } from "../middleware/requireRole";
 
 const FIELD_DISPLAY_ORDER: string[] = [
   "nombreCliente",
@@ -985,6 +986,7 @@ export const leadsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      requireRole(ctx.user, ["superadmin"]);
       const orgId = ctx.activeOrganizationId ?? 1;
       await setLeadFieldDefs(orgId, input.fields);
       return { success: true };
@@ -1008,10 +1010,12 @@ export const leadsRouter = router({
               z.object({ block: z.string(), order: z.number() })
             )
             .optional(),
+          textOverrides: z.record(z.string(), z.string()).optional(),
         }),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      requireRole(ctx.user, ["superadmin"]);
       const orgId = ctx.activeOrganizationId ?? 1;
       await setFormLayout(orgId, input.overrides);
       return { success: true };
@@ -1040,6 +1044,7 @@ export const leadsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      requireRole(ctx.user, ["superadmin"]);
       const orgId = ctx.activeOrganizationId ?? 1;
       await setPricingFieldsConfig(orgId, {
         hiddenLines: input.hiddenLines,

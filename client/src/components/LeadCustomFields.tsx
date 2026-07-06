@@ -249,25 +249,50 @@ export function LeadFieldDefinitionsEditor({
                 </div>
               </div>
               {f.type === "select" ? (
-                <div className="mt-1 ml-6">
+                <div className="ml-6 mt-2 space-y-1.5">
                   <label className="text-xs text-muted-foreground">
-                    Opciones para "{f.label || "este campo"}" (separadas por
-                    coma):
+                    Categorías para "{f.label || "este campo"}":
                   </label>
-                  <input
-                    type="text"
-                    value={(f.options ?? []).join(", ")}
-                    onChange={e =>
-                      updateField(i, {
-                        options: e.target.value
-                          .split(",")
-                          .map(o => o.trim())
-                          .filter(Boolean),
-                      })
-                    }
-                    placeholder="Opción A, Opción B, Opción C"
-                    className="mt-1 w-full rounded border bg-background px-2 py-1 text-sm"
-                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    {(f.options ?? []).map((opt, oi) => (
+                      <span
+                        key={oi}
+                        className="inline-flex items-center gap-1 rounded-full border bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary"
+                      >
+                        {opt}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateField(i, {
+                              options: (f.options ?? []).filter(
+                                (_, j) => j !== oi
+                              ),
+                            })
+                          }
+                          className="text-primary/60 hover:text-red-500"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="text"
+                      placeholder="+ agregar"
+                      className="w-24 rounded-full border border-dashed bg-background px-2.5 py-1 text-xs outline-none transition focus:border-primary focus:w-36"
+                      onKeyDown={e => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const val = (e.target as HTMLInputElement).value.trim();
+                          if (val) {
+                            updateField(i, {
+                              options: [...(f.options ?? []), val],
+                            });
+                            (e.target as HTMLInputElement).value = "";
+                          }
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
               ) : null}
             </div>

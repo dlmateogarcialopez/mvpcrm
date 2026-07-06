@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { trpc } from "../lib/trpc";
 import { toast } from "sonner";
+import { EditableText } from "./EditableText";
 
 interface PricingLine {
   key: string;
@@ -157,11 +158,14 @@ export function Section3FormFields({
     <div className="space-y-3">
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-          3. Cotización inicial
+          <EditableText storageKey="step3.title" defaultText="3. Cotización inicial" as="span" />
         </p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Define las líneas de producto o servicio, sus cantidades y precios
-          unitarios. Los subtotales y el valor total se calculan automáticamente.
+          <EditableText
+            storageKey="step3.subtitle"
+            defaultText="Define las líneas de producto o servicio, sus cantidades y precios unitarios. Los subtotales y el valor total se calculan automáticamente."
+            as="span"
+          />
         </p>
       </div>
 

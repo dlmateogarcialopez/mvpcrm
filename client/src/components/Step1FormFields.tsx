@@ -13,18 +13,20 @@ import {
 import { trpc } from "../lib/trpc";
 import { toast } from "sonner";
 import type { CustomFieldDef } from "./LeadCustomFields";
+import { EditableText } from "./EditableText";
 
 export interface FormLayoutOverrides {
   hiddenFields?: string[];
   fieldLabels?: Record<string, string>;
   fieldRequired?: Record<string, boolean>;
   blockAssignments?: Record<string, { block: string; order: number }>;
+  textOverrides?: Record<string, string>;
 }
 
 interface BlockField {
   key: string;
   label: string;
-  type: "text" | "email" | "number" | "select" | "datetime" | "custom";
+  type: "text" | "email" | "number" | "select" | "datetime" | "date";
   block: "contacto" | "clasificacion" | "contexto";
   order: number;
   required?: boolean;
@@ -129,6 +131,7 @@ export function Step1FormFields({
 
   const [newFieldName, setNewFieldName] = useState("");
   const [newFieldType, setNewFieldType] = useState<"text" | "number" | "select" | "date">("text");
+  const [newFieldOptions, setNewFieldOptions] = useState<string[]>([]);
 
   const saveMutation = trpc.leads.saveFormLayout.useMutation({
     onSuccess: () => {
@@ -145,6 +148,7 @@ export function Step1FormFields({
     setDraftRequired({ ...(overrides?.fieldRequired ?? {}) });
     setNewFieldName("");
     setNewFieldType("text");
+    setNewFieldOptions([]);
     setEditingBlock(block);
   }
 
@@ -190,6 +194,7 @@ export function Step1FormFields({
   const [editingCustomKey, setEditingCustomKey] = useState<string | null>(null);
   const [editingCustomLabel, setEditingCustomLabel] = useState("");
   const [editingCustomType, setEditingCustomType] = useState<"text" | "number" | "select" | "date">("text");
+  const [editingCustomOptions, setEditingCustomOptions] = useState<string[]>([]);
 
   function handleSaveBlock() {
     const mergedOverrides: FormLayoutOverrides = {};
@@ -211,9 +216,11 @@ export function Step1FormFields({
         block: editingBlock,
         order: 99,
         required: false,
+        options: newFieldType === "select" ? newFieldOptions : undefined,
       } as CustomFieldDef,
     ];
     saveCustomMutation.mutate({ fields: allFields });
+    setNewFieldOptions([]);
   }
 
   function handleDeleteCustom(customKey: string) {
@@ -224,7 +231,7 @@ export function Step1FormFields({
   function handleSaveCustomEdit(customKey: string) {
     const allFields = customFields.map(f => {
       if (f.key !== customKey) return { ...f };
-      return { ...f, label: editingCustomLabel.trim() || f.label, type: editingCustomType };
+      return { ...f, label: editingCustomLabel.trim() || f.label, type: editingCustomType, options: editingCustomType === "select" ? editingCustomOptions : undefined };
     });
     saveCustomMutation.mutate({ fields: allFields });
   }
@@ -233,17 +240,21 @@ export function Step1FormFields({
     setEditingCustomKey(c.key);
     setEditingCustomLabel(c.label);
     setEditingCustomType(c.type);
+    setEditingCustomOptions(c.options ?? []);
   }
 
   return (
     <div className="space-y-3">
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-          1. Contacto y oportunidad
+          <EditableText storageKey="step1.title" defaultText="1. Contacto y oportunidad" as="span" />
         </p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Primero registra a la persona contacto, luego define si la oportunidad
-          es de persona o empresa y finalmente completa el contexto comercial.
+          <EditableText
+            storageKey="step1.subtitle"
+            defaultText="Primero registra la persona contacto, luego define si la oportunidad es de persona o empresa y finalmente completa el contexto comercial."
+            as="span"
+          />
         </p>
       </div>
 
@@ -261,7 +272,11 @@ export function Step1FormFields({
                     {blockDef.title}
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {blockDef.subtitle}
+                    <EditableText
+                      storageKey={`block.${block}.subtitle`}
+                      defaultText={blockDef.subtitle}
+                      as="span"
+                    />
                   </p>
                 </div>
                 {!isEditing && (
@@ -346,39 +361,79 @@ export function Step1FormFields({
                       className="flex items-center gap-2 rounded-lg border bg-muted/10 p-2"
                     >
                       {editingCustomKey === c.key ? (
-                        <>
-                          <input
-                            type="text"
-                            value={editingCustomLabel}
-                            onChange={e => setEditingCustomLabel(e.target.value)}
-                            className="flex-1 rounded border bg-background px-2 py-1 text-sm"
-                            autoFocus
-                          />
-                          <select
-                            value={editingCustomType}
-                            onChange={e => setEditingCustomType(e.target.value as any)}
-                            className="rounded border bg-background px-1.5 py-1 text-xs w-20 shrink-0"
-                          >
-                            <option value="text">Texto</option>
-                            <option value="number">Número</option>
-                            <option value="select">Selector</option>
-                            <option value="date">Fecha</option>
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => handleSaveCustomEdit(c.key)}
-                            className="rounded-full p-1 text-emerald-600 hover:bg-emerald-50 shrink-0"
-                          >
-                            <Save className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingCustomKey(null)}
-                            className="rounded-full p-1 text-muted-foreground hover:bg-muted shrink-0"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </>
+                        <div className="w-full space-y-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={editingCustomLabel}
+                              onChange={e => setEditingCustomLabel(e.target.value)}
+                              className="flex-1 rounded border bg-background px-2 py-1 text-sm"
+                              autoFocus
+                            />
+                            <select
+                              value={editingCustomType}
+                              onChange={e => setEditingCustomType(e.target.value as any)}
+                              className="rounded border bg-background px-1.5 py-1 text-xs w-20 shrink-0"
+                            >
+                              <option value="text">Texto</option>
+                              <option value="number">Número</option>
+                              <option value="select">Selector</option>
+                              <option value="date">Fecha</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveCustomEdit(c.key)}
+                              className="rounded-full p-1 text-emerald-600 hover:bg-emerald-50 shrink-0"
+                            >
+                              <Save className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingCustomKey(null)}
+                              className="rounded-full p-1 text-muted-foreground hover:bg-muted shrink-0"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                          {editingCustomType === "select" ? (
+                            <div className="flex flex-wrap items-center gap-1.5 pl-1">
+                              {editingCustomOptions.map((opt, oi) => (
+                                <span
+                                  key={oi}
+                                  className="inline-flex items-center gap-1 rounded-full border bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
+                                >
+                                  {opt}
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setEditingCustomOptions(prev =>
+                                        prev.filter((_, j) => j !== oi)
+                                      )
+                                    }
+                                    className="text-primary/60 hover:text-red-500"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </span>
+                              ))}
+                              <input
+                                type="text"
+                                placeholder="+ agregar"
+                                className="w-24 rounded-full border border-dashed bg-background px-2.5 py-1 text-xs outline-none transition focus:border-primary focus:w-36"
+                                onKeyDown={e => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    const val = (e.target as HTMLInputElement).value.trim();
+                                    if (val) {
+                                      setEditingCustomOptions(prev => [...prev, val]);
+                                      (e.target as HTMLInputElement).value = "";
+                                    }
+                                  }
+                                }}
+                              />
+                            </div>
+                          ) : null}
+                        </div>
                       ) : (
                         <>
                           <span className="text-primary"><Eye className="h-3.5 w-3.5" /></span>
@@ -436,6 +491,44 @@ export function Step1FormFields({
                       <CheckCircle2 className="h-4 w-4" />
                     </button>
                   </div>
+                  {newFieldType === "select" ? (
+                    <div className="flex flex-wrap items-center gap-1.5 pl-8">
+                      {newFieldOptions.map((opt, oi) => (
+                        <span
+                          key={oi}
+                          className="inline-flex items-center gap-1 rounded-full border bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
+                        >
+                          {opt}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setNewFieldOptions(prev =>
+                                prev.filter((_, j) => j !== oi)
+                              )
+                            }
+                            className="text-primary/60 hover:text-red-500"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                      <input
+                        type="text"
+                        placeholder="+ agregar categoría"
+                        className="w-28 rounded-full border border-dashed bg-background px-2.5 py-1 text-xs outline-none transition focus:border-primary focus:w-40"
+                        onKeyDown={e => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const val = (e.target as HTMLInputElement).value.trim();
+                            if (val) {
+                              setNewFieldOptions(prev => [...prev, val]);
+                              (e.target as HTMLInputElement).value = "";
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div className={`mt-4 grid gap-4 ${blockDef.gridClass}`}>
@@ -538,6 +631,23 @@ function FieldRenderer({
           type="datetime-local"
           value={timestampToDatetimeLocal(value)}
           onChange={e => onChange(datetimeLocalToTimestamp(e.target.value))}
+          className="h-11 rounded-xl border bg-background px-3 text-sm outline-none transition focus:border-primary"
+        />
+        {error ? (
+          <span className="text-xs text-destructive">{error}</span>
+        ) : null}
+      </label>
+    );
+  }
+
+  if (field.type === "date") {
+    return (
+      <label className="grid gap-2 text-sm">
+        {label}
+        <input
+          type="date"
+          value={value}
+          onChange={e => onChange(e.target.value)}
           className="h-11 rounded-xl border bg-background px-3 text-sm outline-none transition focus:border-primary"
         />
         {error ? (

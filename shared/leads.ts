@@ -59,7 +59,7 @@ export const leadStatusValues = [
 
 export type LeadStatus = (typeof leadStatusValues)[number];
 
-export const leadStatusLabels: Record<LeadStatus, string> = {
+export const leadStatusLabels: Record<string, string> = {
   nuevo: "Nuevo",
   contactado: "Contactado",
   calificado: "Calificado",
@@ -71,6 +71,10 @@ export const leadStatusLabels: Record<LeadStatus, string> = {
   perdido: "Perdido",
   pausado: "Pausado",
 };
+
+export function getLeadStatusLabel(status: string): string {
+  return leadStatusLabels[status] ?? status;
+}
 
 export const leadPrimaryPipelineValues = [
   "nuevo",

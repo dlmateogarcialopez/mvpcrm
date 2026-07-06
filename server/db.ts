@@ -3973,6 +3973,7 @@ export interface FormLayoutOverrides {
   fieldLabels?: Record<string, string>;
   fieldRequired?: Record<string, boolean>;
   blockAssignments?: Record<string, { block: string; order: number }>;
+  textOverrides?: Record<string, string>;
 }
 
 export async function getFormLayout(
