@@ -169,6 +169,20 @@
       "when": 1783800000000,
       "tag": "0024_users_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1783900000000,
+      "tag": "0025_audit_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1784000000000,
+      "tag": "0026_agents_see_all_leads",
+      "breakpoints": true
     }
   ]
 }

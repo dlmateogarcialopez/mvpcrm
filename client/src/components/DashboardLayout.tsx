@@ -35,6 +35,7 @@ import {
   Loader2,
   UserCog,
   Layers,
+  History,
 } from "lucide-react";
 import React, {
   CSSProperties,
@@ -102,6 +103,13 @@ const menuItems = [
     label: "Configuración",
     path: "/configuracion",
     description: "Equipo, metas y reglas",
+  },
+  {
+    icon: History,
+    label: "Auditoría",
+    path: "/auditoria",
+    description: "Movimientos globales",
+    superadminOnly: true,
   },
 ];
 

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import * as db from "../db";
+import { logAudit } from "../db";
 
 const orgIdOrFail = (ctx: any): number => {
   if (!ctx.activeOrganizationId) throw new TRPCError({ code: "FORBIDDEN", message: "No hay organización activa." });

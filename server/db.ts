@@ -1,8 +1,9 @@
-import { and, asc, desc, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { nanoid } from "nanoid";
 import {
   appSettings,
+  auditLogs,
   InsertUser,
   leadActivities,
   leadCalendarSyncs,
@@ -27,6 +28,8 @@ import {
   type AppSettings,
   type AutomationRecipient,
   type InsertAutomationRecipient,
+  type AuditLog,
+  type InsertAuditLog,
   type Lead,
   type LeadActivity,
   type Organization,
@@ -400,6 +403,12 @@ function canUserAccessLead(
 
   // 2) Rol dentro de la org activa
   if (activeOrgRole === "owner" || activeOrgRole === "admin") {
+    return true;
+  }
+
+  // 2b) Agente o admin (global) con membresía activa en la org ve todos los leads de la org.
+  // Cambio US-01: visibilidad ampliada por membresía.
+  if (activeOrgRole === "agent" && user.activeOrgId === row.organizationId) {
     return true;
   }
 
@@ -2613,6 +2622,90 @@ export async function listAllUsers(includeDeleted = false): Promise<User[]> {
     return query.where(sql`${users.deletedAt} IS NULL`).orderBy(asc(users.name));
   }
   return query.orderBy(asc(users.name));
+}
+
+export interface AuditEntry {
+  organizationId: number;
+  actorUserId?: number | null;
+  actorEmail?: string | null;
+  actorName?: string | null;
+  action: string;
+  entityType: string;
+  entityId?: string | null;
+  entityName?: string | null;
+  summary: string;
+  details?: any;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+}
+
+export async function logAudit(entry: AuditEntry): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(auditLogs).values({
+    organizationId: entry.organizationId,
+    actorUserId: entry.actorUserId ?? null,
+    actorEmail: entry.actorEmail ?? null,
+    actorName: entry.actorName ?? null,
+    action: entry.action,
+    entityType: entry.entityType,
+    entityId: entry.entityId ?? null,
+    entityName: entry.entityName ?? null,
+    summary: entry.summary,
+    details: entry.details ? JSON.stringify(entry.details) : null,
+    ipAddress: entry.ipAddress ?? null,
+    userAgent: entry.userAgent ?? null,
+  } as any);
+}
+
+/* ============================================================
+ * Auditoría global (superadmin)
+ * ============================================================ */
+
+export async function recordAuditEntry(entry: InsertAuditLog): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(auditLogs).values(entry);
+}
+
+export async function listAuditLogs(filters: {
+  userId?: number;
+  organizationId?: number;
+  action?: string;
+  entityType?: string;
+  search?: string;
+  from?: number;
+  to?: number;
+  limit?: number;
+  cursor?: number;
+}): Promise<AuditLog[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions: any[] = [];
+  if (filters.userId) conditions.push(eq(auditLogs.actorUserId, filters.userId));
+  if (filters.organizationId) conditions.push(eq(auditLogs.organizationId, filters.organizationId));
+  if (filters.action) conditions.push(eq(auditLogs.action, filters.action));
+  if (filters.entityType) conditions.push(eq(auditLogs.entityType, filters.entityType));
+  if (filters.from) conditions.push(gte(auditLogs.createdAt, new Date(filters.from)));
+  if (filters.to) conditions.push(lte(auditLogs.createdAt, new Date(filters.to)));
+  if (filters.cursor) conditions.push(lt(auditLogs.id, filters.cursor));
+  if (filters.search) {
+    const s = `%${filters.search}%`;
+    conditions.push(
+      or(
+        sql`${auditLogs.actorEmail} LIKE ${s}`,
+        sql`${auditLogs.actorName} LIKE ${s}`,
+        sql`${auditLogs.summary} LIKE ${s}`,
+        sql`${auditLogs.entityName} LIKE ${s}`
+      )!
+    );
+  }
+  return db
+    .select()
+    .from(auditLogs)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(auditLogs.id))
+    .limit(filters.limit ?? 50);
 }
 
 /* ============================================================

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
+import { logAudit } from "../db";
+import { getRequestMeta } from "../middleware/auditContext";
 import {
   protectedProcedure,
   orgProcedure,
@@ -249,6 +251,17 @@ export const organizationsRouter = router({
         slug: input.slug,
         createdByUserId: ctx.user.id,
       });
+      await logAudit({
+        organizationId: created.id,
+        actorUserId: ctx.user.id,
+        actorEmail: ctx.user.email ?? null,
+        actorName: ctx.user.name ?? null,
+        action: "create",
+        entityType: "org",
+        entityId: String(created.id),
+        entityName: input.name,
+        summary: `Creó la organización "${input.name}"`,
+      });
       return created;
     }),
 
@@ -385,7 +398,21 @@ export const organizationsRouter = router({
       if (!updated) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "Miembro no encontrado.",
+          message: "Organización no encontrada.",
+        });
+      }
+      if (input.name || input.status) {
+        await logAudit({
+          organizationId: ctx.organizationId,
+          actorUserId: ctx.user.id,
+          actorEmail: ctx.user.email ?? null,
+          actorName: ctx.user.name ?? null,
+          action: "update",
+          entityType: "org",
+          entityId: String(ctx.organizationId),
+          entityName: updated.name,
+          summary: `Actualizó la organización "${updated.name}"`,
+          details: input,
         });
       }
       return updated;
@@ -539,12 +566,26 @@ export const organizationsRouter = router({
    */
   delete: superadminProcedure
     .input(z.object({ id: z.number().int().positive() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const orgSnapshot = await getOrganizationById(input.id);
       const ok = await deleteOrganizationById(input.id);
       if (!ok) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Organización no encontrada.",
+        });
+      }
+      if (orgSnapshot) {
+        await logAudit({
+          organizationId: input.id,
+          actorUserId: ctx.user?.id,
+          actorEmail: ctx.user?.email ?? null,
+          actorName: ctx.user?.name ?? null,
+          action: "delete",
+          entityType: "org",
+          entityId: String(input.id),
+          entityName: orgSnapshot.name,
+          summary: `Eliminó la organización "${orgSnapshot.name}"`,
         });
       }
       return { success: true, id: input.id };

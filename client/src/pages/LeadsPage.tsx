@@ -387,7 +387,7 @@ export default function LeadsPage() {
     ciudad: "",
     agenteUserId: "todos",
     soloAlertas: false,
-    assignedToMe: false,
+    assignedToMe: true,
     sortBy: "updatedAt",
     sortOrder: "desc",
   });
@@ -1442,7 +1442,7 @@ export default function LeadsPage() {
                     }))
                   }
                 />
-                Mis oportunidades
+                Mis leads (asignados a mí)
               </label>
             </div>
           </div>

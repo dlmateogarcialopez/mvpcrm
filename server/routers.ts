@@ -21,6 +21,7 @@ import { organizationsRouter } from "./routers/organizations";
 import { dialingRouter } from "./routers/dialing";
 import { phoneListsRouter } from "./routers/phoneLists";
 import { usersRouter } from "./routers/users";
+import { auditRouter } from "./routers/audit";
 import { hashPassword, verifyPassword } from "./_core/password";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
@@ -223,6 +224,7 @@ export const appRouter = router({
   dialing: dialingRouter,
   phoneLists: phoneListsRouter,
   users: usersRouter,
+  audit: auditRouter,
 });
 
 export type AppRouter = typeof appRouter;

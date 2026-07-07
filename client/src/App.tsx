@@ -17,6 +17,7 @@ import { ChannelsManagerPage } from "./pages/ChannelsManagerPage";
 import { AutomationsPage } from "./pages/AutomationsPage";
 import { AutomationRecipientsPage } from "./pages/AutomationRecipientsPage";
 import { ImportExportPage } from "./pages/ImportExportPage";
+import AuditPage from "./pages/AuditPage";
 import { EmailMarketingPage } from "./pages/EmailMarketingPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
@@ -62,6 +63,7 @@ function ProtectedDashboardRoutes() {
           />
           <Route path={"/email-marketing"} component={EmailMarketingPage} />
           <Route path={"/importar-exportar"} component={ImportExportPage} />
+          <Route path={"/auditoria"} component={AuditPage} />
           <Route path={"/dialer"} component={DialerPage} />
           <Route path={"/phone-lists"} component={PhoneListsPage} />
           <Route path={"/phone-lists/:id"} component={PhoneListDetailPage} />

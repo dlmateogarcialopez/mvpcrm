@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, publicProcedure } from "../_core/trpc";
 import { requireRole } from "../middleware/requireRole";
+import { logAudit } from "../db";
 import {
   getUserById,
   listAllUsers,
@@ -28,7 +29,20 @@ export const usersRouter = router({
       requireRole(ctx.user, ["superadmin"]);
       const target = await getUserById(input.userId);
       if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "Usuario no encontrado" });
-      return updateUserInfo(input.userId, { name: input.name, email: input.email });
+      const result = await updateUserInfo(input.userId, { name: input.name, email: input.email });
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "update",
+        entityType: "user",
+        entityId: String(input.userId),
+        entityName: target.name ?? target.email ?? String(input.userId),
+        summary: `Actualizó el usuario "${target.name || target.email}"`,
+        details: { name: input.name, email: input.email },
+      });
+      return result;
     }),
 
   softDelete: publicProcedure
@@ -42,6 +56,17 @@ export const usersRouter = router({
       if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "Usuario no encontrado" });
       if (target.deletedAt) throw new TRPCError({ code: "BAD_REQUEST", message: "El usuario ya está desactivado" });
       await softDeleteUser(input.userId);
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "soft_delete",
+        entityType: "user",
+        entityId: String(input.userId),
+        entityName: target.name ?? target.email ?? String(input.userId),
+        summary: `Desactivó el usuario "${target.name || target.email}"`,
+      });
       return { success: true };
     }),
 
@@ -52,6 +77,17 @@ export const usersRouter = router({
       const target = await getUserById(input.userId);
       if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "Usuario no encontrado" });
       await restoreUser(input.userId);
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "restore",
+        entityType: "user",
+        entityId: String(input.userId),
+        entityName: target.name ?? target.email ?? String(input.userId),
+        summary: `Restauró el usuario "${target.name || target.email}"`,
+      });
       return { success: true };
     }),
 });
