@@ -2572,6 +2572,49 @@ export async function updateUserTelegramChatId(
   return true;
 }
 
+export async function updateUserInfo(
+  userId: number,
+  data: { name?: string; email?: string }
+): Promise<User | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const updates: Record<string, any> = {};
+  if (data.name !== undefined) updates.name = data.name.trim();
+  if (data.email !== undefined) updates.email = data.email.trim().toLowerCase();
+  if (Object.keys(updates).length === 0) return null;
+  await db.update(users).set(updates).where(eq(users.id, userId));
+  const [row] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  return row ?? null;
+}
+
+export async function softDeleteUser(userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(users)
+    .set({ deletedAt: new Date() } as any)
+    .where(eq(users.id, userId));
+}
+
+export async function restoreUser(userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(users)
+    .set({ deletedAt: null } as any)
+    .where(eq(users.id, userId));
+}
+
+export async function listAllUsers(includeDeleted = false): Promise<User[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const query = db.select().from(users);
+  if (!includeDeleted) {
+    return query.where(sql`${users.deletedAt} IS NULL`).orderBy(asc(users.name));
+  }
+  return query.orderBy(asc(users.name));
+}
+
 /* ============================================================
  * Helpers para el motor de automatizaciones (trigger gestion_vencida)
  * ============================================================ */

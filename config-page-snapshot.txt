@@ -1,0 +1,111 @@
+- generic [ref=e2]:
+  - region "Notifications alt+T"
+  - generic [ref=e25]:
+    - generic [ref=e28]:
+      - generic [ref=e29]:
+        - generic [ref=e30]:
+          - button "Alternar navegación" [ref=e31] [cursor=pointer]:
+            - img [ref=e32]
+          - generic [ref=e34]:
+            - paragraph [ref=e35]: CRM comercial
+            - paragraph [ref=e36]: Máquina de ventas
+        - button "M Maquina de Ventas 3 organizaciones" [ref=e37] [cursor=pointer]:
+          - generic [ref=e38]: M
+          - generic [ref=e39]:
+            - paragraph [ref=e40]: Maquina de Ventas
+            - paragraph [ref=e41]: 3 organizaciones
+          - img [ref=e42]
+      - list [ref=e46]:
+        - listitem [ref=e47]:
+          - button "Resumen Ejecución comercial" [ref=e48] [cursor=pointer]:
+            - img [ref=e49]
+            - generic [ref=e51]:
+              - generic [ref=e52]: Resumen
+              - generic [ref=e53]: Ejecución comercial
+        - listitem [ref=e54]:
+          - button "Oportunidades Embudo y seguimiento" [ref=e55] [cursor=pointer]:
+            - img [ref=e56]
+            - generic [ref=e60]:
+              - generic [ref=e61]: Oportunidades
+              - generic [ref=e62]: Embudo y seguimiento
+        - listitem [ref=e63]:
+          - button "Embudo Gestión y visualización de embudos" [ref=e64] [cursor=pointer]:
+            - img [ref=e65]
+            - generic [ref=e69]:
+              - generic [ref=e70]: Embudo
+              - generic [ref=e71]: Gestión y visualización de embudos
+        - listitem [ref=e72]:
+          - button "Automatizaciones Reglas y flujos automáticos" [ref=e73] [cursor=pointer]:
+            - img [ref=e74]
+            - generic [ref=e76]:
+              - generic [ref=e77]: Automatizaciones
+              - generic [ref=e78]: Reglas y flujos automáticos
+        - listitem [ref=e79]:
+          - button "Destinatarios Libreta de notificaciones" [ref=e80] [cursor=pointer]:
+            - img [ref=e81]
+            - generic [ref=e93]:
+              - generic [ref=e94]: Destinatarios
+              - generic [ref=e95]: Libreta de notificaciones
+        - listitem [ref=e96]:
+          - button "Importar / Exportar Carga y descarga de leads en Excel" [ref=e97] [cursor=pointer]:
+            - img [ref=e98]
+            - generic [ref=e101]:
+              - generic [ref=e102]: Importar / Exportar
+              - generic [ref=e103]: Carga y descarga de leads en Excel
+        - listitem [ref=e104]:
+          - button "Email Marketing Campañas de email" [ref=e105] [cursor=pointer]:
+            - img [ref=e106]
+            - generic [ref=e109]:
+              - generic [ref=e110]: Email Marketing
+              - generic [ref=e111]: Campañas de email
+        - listitem [ref=e112]:
+          - button "Marcación VoIP, SMS y grabaciones" [ref=e113] [cursor=pointer]:
+            - img [ref=e114]
+            - generic [ref=e118]:
+              - generic [ref=e119]: Marcación
+              - generic [ref=e120]: VoIP, SMS y grabaciones
+        - listitem [ref=e121]:
+          - button "Configuración Equipo, metas y reglas" [ref=e122] [cursor=pointer]:
+            - img [ref=e123]
+            - generic [ref=e126]:
+              - generic [ref=e127]: Configuración
+              - generic [ref=e128]: Equipo, metas y reglas
+      - button "S Super Admin Superadministrador admin@mvp.local Control total del CRM, permisos y configuración sensible." [ref=e130] [cursor=pointer]:
+        - generic [ref=e132]: S
+        - generic [ref=e133]:
+          - generic [ref=e134]:
+            - paragraph [ref=e135]: Super Admin
+            - generic [ref=e136]: Superadministrador
+          - paragraph [ref=e137]: admin@mvp.local
+          - paragraph [ref=e138]: Control total del CRM, permisos y configuración sensible.
+    - main [ref=e140]:
+      - main [ref=e141]:
+        - generic [ref=e143]:
+          - generic [ref=e144]:
+            - img [ref=e146]
+            - heading "Hola, Super" [level=1] [ref=e150]
+            - paragraph [ref=e151]: Elige la organización con la que quieres trabajar.
+          - generic [ref=e152]:
+            - button "N Negocio Principal owner · /default" [ref=e153] [cursor=pointer]:
+              - generic [ref=e154]: "N"
+              - generic [ref=e155]:
+                - paragraph [ref=e156]: Negocio Principal
+                - paragraph [ref=e157]: owner · /default
+              - img [ref=e159]
+            - button "C cafecentro owner · /cafe" [ref=e161] [cursor=pointer]:
+              - generic [ref=e162]: C
+              - generic [ref=e163]:
+                - paragraph [ref=e164]: cafecentro
+                - paragraph [ref=e165]: owner · /cafe
+              - img [ref=e167]
+            - button "P psicología owner · /psicologia" [ref=e169] [cursor=pointer]:
+              - generic [ref=e170]: P
+              - generic [ref=e171]:
+                - paragraph [ref=e172]: psicología
+                - paragraph [ref=e173]: owner · /psicologia
+              - img [ref=e175]
+          - generic [ref=e177]:
+            - paragraph [ref=e178]: 3 organizaciones disponibles
+            - button "Cerrar sesión" [ref=e179] [cursor=pointer]:
+              - img
+              - text: Cerrar sesión

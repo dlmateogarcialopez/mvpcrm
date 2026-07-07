@@ -141,6 +141,7 @@ export const users = mysqlTable("users", {
     .default("agent")
     .notNull(),
   telegramChatId: varchar("telegramChatId", { length: 64 }),
+  deletedAt: timestamp("deletedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),

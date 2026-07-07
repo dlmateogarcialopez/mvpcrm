@@ -20,6 +20,7 @@ import { permissionsRouter } from "./routers/permissions";
 import { organizationsRouter } from "./routers/organizations";
 import { dialingRouter } from "./routers/dialing";
 import { phoneListsRouter } from "./routers/phoneLists";
+import { usersRouter } from "./routers/users";
 import { hashPassword, verifyPassword } from "./_core/password";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
@@ -221,6 +222,7 @@ export const appRouter = router({
   organizations: organizationsRouter,
   dialing: dialingRouter,
   phoneLists: phoneListsRouter,
+  users: usersRouter,
 });
 
 export type AppRouter = typeof appRouter;

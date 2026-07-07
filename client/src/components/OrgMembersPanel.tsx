@@ -1,14 +1,17 @@
 import { useState } from "react";
 import {
   Copy,
+  Edit3,
   KeyRound,
   Loader2,
   Mail,
   MoreHorizontal,
+  Save,
   Send,
   Shield,
   ShieldCheck,
   Trash2,
+  Undo2,
   UserCog2,
   UserPlus,
   Users,
@@ -207,6 +210,34 @@ export function OrgMembersPanel() {
   const me = orgsQuery.data?.find(o => o.id === brand.organizationId);
   const canManage = me?.orgRole === "owner" || me?.orgRole === "admin";
   const isOwner = me?.orgRole === "owner";
+  const isSuperAdmin = user?.role === "superadmin";
+
+  const [editUserId, setEditUserId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+
+  const updateUserMutation = trpc.users.update.useMutation({
+    onSuccess: () => {
+      utils.organizations.members.invalidate();
+      toast.success("Usuario actualizado");
+      setEditUserId(null);
+    },
+    onError: e => toast.error(e.message),
+  });
+  const softDeleteMutation = trpc.users.softDelete.useMutation({
+    onSuccess: () => {
+      utils.organizations.members.invalidate();
+      toast.success("Usuario desactivado");
+    },
+    onError: e => toast.error(e.message),
+  });
+  const restoreMutation = trpc.users.restore.useMutation({
+    onSuccess: () => {
+      utils.organizations.members.invalidate();
+      toast.success("Usuario restaurado");
+    },
+    onError: e => toast.error(e.message),
+  });
 
   const handleInvite = async () => {
     if (!inviteEmail.trim() || !inviteEmail.includes("@")) {
@@ -365,7 +396,7 @@ export function OrgMembersPanel() {
                 return (
                   <div
                     key={member.id}
-                    className="flex items-center gap-3 rounded-xl border bg-background p-3"
+                    className={`flex items-center gap-3 rounded-xl border bg-background p-3 ${member.user.deletedAt ? "opacity-50 bg-muted/20" : ""}`}
                   >
                     <div
                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
@@ -374,15 +405,66 @@ export function OrgMembersPanel() {
                       {initial}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">
-                        {member.user.name || member.user.email}
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {member.user.email} ·{" "}
-                        <span className="uppercase tracking-wider">
-                          {ROLE_LABELS[role]}
-                        </span>
-                      </p>
+                      {editUserId === member.userId && isSuperAdmin ? (
+                        <div className="space-y-1.5">
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={e => setEditName(e.target.value)}
+                            className="w-full rounded border bg-background px-2 py-1 text-sm font-semibold"
+                            placeholder="Nombre"
+                            autoFocus
+                          />
+                          <input
+                            type="email"
+                            value={editEmail}
+                            onChange={e => setEditEmail(e.target.value)}
+                            className="w-full rounded border bg-background px-2 py-1 text-xs"
+                            placeholder="Email"
+                          />
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => updateUserMutation.mutate({ userId: member.userId, name: editName, email: editEmail })}
+                              disabled={updateUserMutation.isPending}
+                              className="rounded-full p-1 text-emerald-600 hover:bg-emerald-50"
+                            >
+                              <Save className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setEditUserId(null)}
+                              className="rounded-full p-1 text-muted-foreground hover:bg-muted"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="truncate text-sm font-semibold flex items-center gap-1">
+                            {member.user.name || member.user.email}
+                            {isSuperAdmin && (
+                              <button
+                                onClick={() => { setEditUserId(member.userId); setEditName(member.user.name || ""); setEditEmail(member.user.email || ""); }}
+                                className="text-muted-foreground/40 hover:text-primary ml-0.5"
+                                title="Editar usuario"
+                              >
+                                <Edit3 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {member.user.email} ·{" "}
+                            <span className="uppercase tracking-wider">
+                              {ROLE_LABELS[role]}
+                            </span>
+                            {member.user.deletedAt && (
+                              <span className="ml-1 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-600">
+                                Desactivado
+                              </span>
+                            )}
+                          </p>
+                        </>
+                      )}
                       {canManage && (
                         <TelegramChatEditor
                           userId={member.userId}
@@ -391,7 +473,34 @@ export function OrgMembersPanel() {
                         />
                       )}
                     </div>
-                    {isOwner && member.userId !== user?.id ? (
+                    {isSuperAdmin && member.userId !== user?.id && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        {member.user.deletedAt ? (
+                          <button
+                            onClick={() => restoreMutation.mutate({ userId: member.userId })}
+                            disabled={restoreMutation.isPending}
+                            className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-emerald-500"
+                            title="Restaurar"
+                          >
+                            <Undo2 className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              if (confirm(`¿Desactivar a ${member.user.name || member.user.email}? Podrá ser restaurado después.`)) {
+                                softDeleteMutation.mutate({ userId: member.userId });
+                              }
+                            }}
+                            disabled={softDeleteMutation.isPending}
+                            className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-red-500"
+                            title="Desactivar usuario"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {isOwner && member.userId !== user?.id && !isSuperAdmin ? (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
