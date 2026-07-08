@@ -2188,34 +2188,7 @@ export default function LeadsPage() {
               </div>
             )}
 
-            <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-wrap gap-2">
-                {(
-                  [
-                    "contactado",
-                    "propuesta",
-                    "ganado",
-                    "perdido",
-                    "pausado",
-                  ] as const
-                ).map(status => (
-                  <button
-                    key={status}
-                    type="button"
-                    onClick={() => handleQuickStatus(status)}
-                    disabled={!selectedLeadId || updateStatusMutation.isPending}
-                    className={`rounded-xl border px-3 py-2 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 ${
-                      status === "perdido"
-                        ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-900 dark:bg-red-950 dark:text-red-300"
-                        : status === "pausado"
-                          ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300"
-                          : ""
-                    }`}
-                  >
-                    Marcar como {leadStatusLabels[status].toLowerCase()}{" "}
-                  </button>
-                ))}
-              </div>
+            <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-end">
               <div className="flex gap-2">
                 {mode === "edit" ? (
                   <>

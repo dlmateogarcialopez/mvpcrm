@@ -45,10 +45,17 @@ export default function SelectOrgPage() {
   const handleSelect = async (orgId: number) => {
     setPendingOrgId(orgId);
     try {
+      // Primero navegar a "/" para que cuando llegue el refetch de
+      // currentSettings al main useEffect de BrandContext, la location
+      // ya no sea "/select-org" (eso forzaba effectiveOrgId = null
+      // y el brand quedaba en null, dejando el sidebar deshabilitado).
+      setLocation("/");
       await selectMutation.mutateAsync({ organizationId: orgId });
+      // El refresh de queries debe ir después de que la navegación se
+      // confirmó y la cookie esté seteada, para que el refetch incluya
+      // la nueva cookie y el brand se actualice con la nueva org.
       await refreshBrand();
       await utils.invalidate();
-      setLocation("/");
     } catch (err: any) {
       toast.error(err?.message || "No fue posible entrar a la organización.");
     } finally {

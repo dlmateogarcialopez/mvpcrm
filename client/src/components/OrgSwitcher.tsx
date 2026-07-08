@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { Building2, Check, ChevronsUpDown, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { useActiveBrand, useRefreshBrand } from "@/contexts/BrandContext";
 import {
   DropdownMenu,
@@ -50,7 +51,8 @@ export function OrgSwitcher() {
   const [newOrgSlug, setNewOrgSlug] = useState("");
 
   const orgs = myOrgsQuery.data ?? [];
-  const isSuperadmin = brand.organizationId !== null; // cualquier user con org puede ver; el superadmin tiene un item extra abajo
+  const { user } = useAuth();
+  const isSuperadmin = user?.role === "superadmin";
 
   // Auto-redirect a /select-org si el user pertenece a varias
   // orgs y la URL actual no es una página que muestre contexto

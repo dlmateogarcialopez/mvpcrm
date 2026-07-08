@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 
 type BrandColor = string;
@@ -69,7 +70,9 @@ interface BrandProviderProps {
  */
 export function BrandProvider({ children }: BrandProviderProps) {
   const utils = trpc.useUtils();
+  const [location] = useLocation();
   const [brand, setBrand] = useState<ActiveBrand>(DEFAULT_BRAND);
+  const clearActiveMutation = trpc.organizations.clearActive.useMutation();
 
   // Query al backend. Solo corre si el usuario está autenticado;
   // el DashboardLayout ya redirige a /login cuando no hay user,
@@ -88,6 +91,10 @@ export function BrandProvider({ children }: BrandProviderProps) {
   // Combinar settings + lista de orgs para resolver el nombre
   // de la org activa (settings.displayName puede ser null;
   // en ese caso caemos al nombre en organization_members).
+  // Si estamos en /select-org, forzamos organizationId: null
+  // aunque el server haya devuelto una orgId stale (cookie que
+  // no se limpió). El clearActive está en un useEffect separado
+  // (ver abajo) para no ejecutarse en un refetch de datos.
   useEffect(() => {
     if (settingsQuery.error || orgsQuery.error) {
       // Si no hay org activa, mantenemos los defaults silenciosamente
@@ -99,11 +106,13 @@ export function BrandProvider({ children }: BrandProviderProps) {
       return;
     }
     const settings = settingsQuery.data;
-    const activeOrg = orgsQuery.data.find(
-      o => o.id === settings.organizationId
-    );
+    const isSelectOrgPage = location === "/select-org";
+    const effectiveOrgId = isSelectOrgPage ? null : settings.organizationId;
+    const activeOrg = effectiveOrgId
+      ? orgsQuery.data.find(o => o.id === effectiveOrgId)
+      : undefined;
     setBrand({
-      organizationId: settings.organizationId,
+      organizationId: effectiveOrgId,
       organizationName: activeOrg?.name ?? null,
       displayName: settings.displayName ?? activeOrg?.name ?? null,
       primaryColor: settings.primaryColor ?? "#5B21B6",
@@ -116,7 +125,24 @@ export function BrandProvider({ children }: BrandProviderProps) {
     settingsQuery.error,
     orgsQuery.data,
     orgsQuery.error,
+    location,
   ]);
+
+  // Limpiar la cookie stale solo cuando el user NAVEGA a /select-org
+  // (no en cada refetch de currentSettings). Esto evita el race con
+  // el flujo de selección: cuando el user hace click en una org
+  // desde /select-org, mutaAsync setea la cookie, refreshBrand
+  // dispara un refetch, location todavía es /select-org pero
+  // settingsQuery.data ya tiene la nueva orgId. Si disparara
+  // clearActive en cada refetch, borraría la cookie que se acaba
+  // de setear. Con esta separación, clearActive solo corre cuando
+  // location cambia explícitamente a /select-org (navegación).
+  useEffect(() => {
+    if (location === "/select-org" && settingsQuery.data?.organizationId) {
+      clearActiveMutation.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location]);
 
   // Aplicar CSS variables al <html>
   useEffect(() => {
