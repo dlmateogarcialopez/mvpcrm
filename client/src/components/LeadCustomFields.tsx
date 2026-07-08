@@ -25,6 +25,7 @@ interface LeadCustomFieldsProps {
   values: Record<string, any>;
   onChange: (key: string, value: any) => void;
   readOnly?: boolean;
+  isSuperAdmin?: boolean;
 }
 
 export function LeadCustomFields({
@@ -32,6 +33,7 @@ export function LeadCustomFields({
   values,
   onChange,
   readOnly,
+  isSuperAdmin,
 }: LeadCustomFieldsProps) {
   if (fieldDefs.length === 0) return null;
 
@@ -100,9 +102,11 @@ export function LeadCustomFields({
 export function LeadFieldDefinitionsEditor({
   fieldDefs,
   onSave,
+  isSuperAdmin,
 }: {
   fieldDefs: CustomFieldDef[];
   onSave: (defs: CustomFieldDef[]) => void;
+  isSuperAdmin?: boolean;
 }) {
   const [fields, setFields] = useState<CustomFieldDef[]>(() =>
     [...fieldDefs].sort((a, b) => a.order - b.order)
@@ -152,6 +156,8 @@ export function LeadFieldDefinitionsEditor({
     const valid = fields.filter(f => f.label.trim());
     saveMutation.mutate({ fields: valid });
   }
+
+  if (!isSuperAdmin) return null;
 
   return (
     <div className="space-y-4">

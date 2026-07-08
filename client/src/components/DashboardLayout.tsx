@@ -45,6 +45,7 @@ import React, {
   useState,
 } from "react";
 import { useLocation } from "wouter";
+import { useActiveBrand } from "@/contexts/BrandContext";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
 const menuItems = [
@@ -78,7 +79,6 @@ const menuItems = [
     label: "Destinatarios",
     path: "/automatizaciones/destinatarios",
     description: "Libreta de notificaciones",
-    superadminOnly: true,
   },
   {
     icon: FileSpreadsheet,
@@ -204,6 +204,7 @@ function DashboardLayoutContent({
   setSidebarWidth,
 }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
+  const brand = useActiveBrand();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -216,10 +217,14 @@ function DashboardLayoutContent({
         (item.matchPaths &&
           item.matchPaths.some((p: string) => location.startsWith(p)))
     ) ?? menuItems[0];
-  const visibleMenuItems = menuItems.filter(item => {
-    if (item.superadminOnly) return user?.role === "superadmin";
-    return true;
-  });
+  const visibleMenuItems = menuItems;
+  function isItemDisabled(item: (typeof menuItems)[number]): boolean {
+    if (item.superadminOnly) return user?.role !== "superadmin";
+    if (!brand.organizationId) {
+      return !(item.path === "/auditoria" && user?.role === "superadmin");
+    }
+    return false;
+  }
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -298,13 +303,17 @@ function DashboardLayoutContent({
                     item.matchPaths.some((p: string) =>
                       location.startsWith(p)
                     ));
+                const disabled = isItemDisabled(item);
                 return (
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton
                       isActive={isActive}
-                      onClick={() => setLocation(item.path)}
-                      tooltip={item.label}
-                      className="h-12 rounded-xl font-normal"
+                      onClick={() => {
+                        if (disabled) return;
+                        setLocation(item.path);
+                      }}
+                      tooltip={item.description || (disabled ? "Selecciona una organización para continuar" : item.label)}
+                      className={`h-12 rounded-xl font-normal ${disabled ? "opacity-50 cursor-not-allowed pointer-events-none" : ""}`}
                     >
                       <item.icon
                         className={`h-4 w-4 ${isActive ? "text-primary" : "text-sidebar-foreground/80"}`}

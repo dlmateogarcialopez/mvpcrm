@@ -110,6 +110,7 @@ interface Step1FormFieldsProps {
   onChange: (key: string, value: any) => void;
   onPartyKindChange: (value: string) => void;
   onLayoutSaved: () => void;
+  isSuperAdmin?: boolean;
 }
 
 export function Step1FormFields({
@@ -121,6 +122,7 @@ export function Step1FormFields({
   onChange,
   onPartyKindChange,
   onLayoutSaved,
+  isSuperAdmin,
 }: Step1FormFieldsProps) {
   const blocks = ["contacto", "clasificacion", "contexto"] as const;
   const [editingBlock, setEditingBlock] = useState<string | null>(null);
@@ -279,16 +281,16 @@ export function Step1FormFields({
                     />
                   </p>
                 </div>
-                {!isEditing && (
-                  <button
-                    type="button"
-                    onClick={() => startEdit(block)}
-                    className="shrink-0 rounded-full p-1.5 text-muted-foreground transition hover:bg-muted hover:text-primary"
-                    title="Editar campos del bloque"
-                  >
-                    <Edit3 className="h-3.5 w-3.5" />
-                  </button>
-                )}
+            {!isEditing && isSuperAdmin && (
+              <button
+                type="button"
+                onClick={() => startEdit(block)}
+                className="shrink-0 rounded-full p-1.5 text-muted-foreground transition hover:bg-muted hover:text-primary"
+                title="Editar campos del bloque"
+              >
+                <Edit3 className="h-3.5 w-3.5" />
+              </button>
+            )}
                 {isEditing && (
                   <div className="flex items-center gap-1 shrink-0">
                     <button

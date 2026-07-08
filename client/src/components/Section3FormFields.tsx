@@ -30,6 +30,7 @@ interface Section3FormFieldsProps {
   onChange: (key: string, value: any) => void;
   onCustomChange: (key: string, value: any) => void;
   onLinesChanged: () => void;
+  isSuperAdmin?: boolean;
 }
 
 export function Section3FormFields({
@@ -38,6 +39,7 @@ export function Section3FormFields({
   onChange,
   onCustomChange,
   onLinesChanged,
+  isSuperAdmin,
 }: Section3FormFieldsProps) {
   const linesQuery = trpc.leads.getPricingFields.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -176,7 +178,7 @@ export function Section3FormFields({
               Líneas de cotización
             </p>
           </div>
-          {!editing && (
+          {!editing && isSuperAdmin && (
             <button
               type="button"
               onClick={startEdit}

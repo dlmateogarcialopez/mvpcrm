@@ -58,6 +58,7 @@ import {
   type LeadSource,
 } from "../../../shared/leads";
 import { trpc } from "../lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { EditableText } from "../components/EditableText";
 import {
   LeadCustomFields,
@@ -359,6 +360,8 @@ function downloadBase64File(
 
 export default function LeadsPage() {
   const utils = trpc.useUtils();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "superadmin";
   const [, setLocation] = useLocation();
   const params = useParams();
 
@@ -845,12 +848,24 @@ export default function LeadsPage() {
       precioParqueadero: form.precioParqueadero,
     });
 
+    const cotizacionConCustom =
+      pricingPreview.totalPersonas > 0 && pricingPreview.valorTotal > 0;
     const checklist = [
-      ...qualificationChecklist.items.map(item => ({
-        label: item.label,
-        ready: item.complete,
-        description: item.description,
-      })),
+      ...qualificationChecklist.items.map(item =>
+        item.id === "cotizacion"
+          ? {
+              label: item.label,
+              ready: cotizacionConCustom,
+              description: cotizacionConCustom
+                ? `Ya existe una estimación inicial para ${pricingPreview.totalPersonas} personas.`
+                : "Completa cantidades y precios para obtener una estimación inicial.",
+            }
+          : {
+              label: item.label,
+              ready: item.complete,
+              description: item.description,
+            }
+      ),
       {
         label: "Próximo paso definido",
         ready: (form.proximaAccion ?? "").trim().length > 0,
@@ -864,14 +879,13 @@ export default function LeadsPage() {
     return {
       metrics,
       checklist,
-      totalUnidadesCotizadas,
+      totalUnidadesCotizadas: pricingPreview.totalPersonas,
       completedItems: checklist.filter(item => item.ready).length,
       readyToSave:
-        qualificationChecklist.ready &&
-        (form.proximaAccion ?? "").trim().length > 0,
+        checklist.filter(item => item.ready).length === checklist.length,
       qualificationChecklist,
     };
-  }, [businessSettings, form]);
+  }, [businessSettings, form, customFieldValues, pricingLinesQuery.data]);
   const selectedLeadPriorityRules = useMemo(() => {
     if (!selectedLead) {
       return [] as string[];
@@ -971,13 +985,27 @@ export default function LeadsPage() {
       }
     }
 
-    const totalUnidades =
+    const standardQtySum =
       form.cantidadMultiple +
       form.cantidadJunior +
       form.cantidadSenior +
       form.cantidadParqueadero;
+
+    const visibleCustomLines = (pricingLinesQuery.data?.lines ?? []).filter(
+      l => l.visible && !l.isStandard
+    );
+    const customQtySum = visibleCustomLines.reduce((sum, line) => {
+      const qty = Number(customFieldValues[line.cantidadKey] ?? 0);
+      return sum + (Number.isFinite(qty) ? qty : 0);
+    }, 0);
+
+    const totalUnidades = standardQtySum + customQtySum;
     if (totalUnidades <= 0) {
-      nextErrors.cantidadMultiple =
+      const targetKey =
+        standardQtySum === 0 && visibleCustomLines.length > 0
+          ? visibleCustomLines[0].cantidadKey
+          : "cantidadMultiple";
+      (nextErrors as Record<string, string>)[targetKey] =
         "Debes registrar al menos una unidad para valorar la oportunidad.";
     }
 
@@ -1681,12 +1709,14 @@ export default function LeadsPage() {
 
             <LeadFieldDefinitionsEditor
               fieldDefs={fieldDefs}
+              isSuperAdmin={isSuperAdmin}
               onSave={() => {
                 fieldDefsQuery.refetch();
               }}
             />
 
             <Step1FormFields
+              isSuperAdmin={isSuperAdmin}
               form={form}
               partyKind={partyKind}
               fieldErrors={fieldErrors as any}
@@ -1755,6 +1785,7 @@ export default function LeadsPage() {
             </div>
 
             <Section3FormFields
+              isSuperAdmin={isSuperAdmin}
               form={form as any}
               customValues={customFieldValues}
               onChange={(key, value) => updateField(key as any, value)}
@@ -2076,6 +2107,7 @@ export default function LeadsPage() {
               fieldDefs={fieldDefs.filter(f => !f.block)}
               values={customFieldValues}
               onChange={updateCustomField}
+              isSuperAdmin={isSuperAdmin}
             />
 
             {/* --- SECCIÓN DE EMBUDOS --- */}
