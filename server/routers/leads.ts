@@ -26,6 +26,7 @@ import {
   setFormLayout,
   setPricingFieldsConfig,
   setLeadStageInPipeline,
+  logAudit,
   updateLead,
   updateLeadStatus,
   updateLeadStatusField,
@@ -111,10 +112,17 @@ function buildTemplateFieldOrder(
   }
 
   for (const block of Object.keys(customByBlock)) {
-    customByBlock[block].sort((a: any, b: any) => (a.order ?? 99) - (b.order ?? 99));
+    customByBlock[block].sort(
+      (a: any, b: any) => (a.order ?? 99) - (b.order ?? 99)
+    );
   }
 
-  function pushField(key: string, label: string, type: string, meta?: Partial<FieldColumn>) {
+  function pushField(
+    key: string,
+    label: string,
+    type: string,
+    meta?: Partial<FieldColumn>
+  ) {
     result.push({ key, label, type, ...meta });
     seen.add(key);
   }
@@ -250,7 +258,9 @@ export const leadsRouter = router({
     const customFields = await getLeadFieldDefs(orgId);
     const pricingConfig = await getPricingFieldsConfig(orgId);
     const pricingLines = getPricingLines(pricingConfig);
-    const customPricingLines = pricingLines.filter(l => !l.isStandard && l.visible);
+    const customPricingLines = pricingLines.filter(
+      l => !l.isStandard && l.visible
+    );
     const pricingFieldDefs: FieldColumn[] = customPricingLines.flatMap(l => [
       { key: l.cantidadKey, label: `${l.label} (cantidad)`, type: "number" },
       { key: l.precioKey, label: `${l.label} (precio)`, type: "number" },
@@ -261,8 +271,12 @@ export const leadsRouter = router({
       const cd = (row as any).customDataParsed ?? {};
       for (const col of columns) {
         if (col.isPricing) {
-          (row as any)[col.key] = cd[col.key] ?? (col.key.endsWith("_price") ? 
-            customPricingLines.find(l => l.precioKey === col.key)?.precioDefault ?? 0 : 0);
+          (row as any)[col.key] =
+            cd[col.key] ??
+            (col.key.endsWith("_price")
+              ? (customPricingLines.find(l => l.precioKey === col.key)
+                  ?.precioDefault ?? 0)
+              : 0);
         } else if (col.isCustom) {
           (row as any)[col.key] = cd[col.key];
         }
@@ -300,7 +314,9 @@ export const leadsRouter = router({
       const customFields = await getLeadFieldDefs(orgId);
       const pricingConfig = await getPricingFieldsConfig(orgId);
       const pricingLines = getPricingLines(pricingConfig);
-      const customPricingLines = pricingLines.filter(l => !l.isStandard && l.visible);
+      const customPricingLines = pricingLines.filter(
+        l => !l.isStandard && l.visible
+      );
       const pricingFieldDefs: FieldColumn[] = customPricingLines.flatMap(l => [
         { key: l.cantidadKey, label: `${l.label} (cantidad)`, type: "number" },
         { key: l.precioKey, label: `${l.label} (precio)`, type: "number" },
@@ -308,7 +324,12 @@ export const leadsRouter = router({
       const columns = buildTemplateFieldOrder(customFields, pricingFieldDefs);
       const allCustomFields = columns
         .filter(c => c.isCustom || c.isPricing)
-        .map(c => ({ key: c.key, label: c.label, type: c.type, synonyms: [c.key, c.label.toLowerCase()] }));
+        .map(c => ({
+          key: c.key,
+          label: c.label,
+          type: c.type,
+          synonyms: [c.key, c.label.toLowerCase()],
+        }));
       const buffer = Buffer.from(input.base64, "base64");
       const result: ValidationResult = validateLeadImport(
         buffer,
@@ -349,7 +370,9 @@ export const leadsRouter = router({
       const customFields = await getLeadFieldDefs(orgId);
       const pricingConfig = await getPricingFieldsConfig(orgId);
       const pricingLines = getPricingLines(pricingConfig);
-      const customPricingLines = pricingLines.filter(l => !l.isStandard && l.visible);
+      const customPricingLines = pricingLines.filter(
+        l => !l.isStandard && l.visible
+      );
       const pricingFieldDefs: FieldColumn[] = customPricingLines.flatMap(l => [
         { key: l.cantidadKey, label: `${l.label} (cantidad)`, type: "number" },
         { key: l.precioKey, label: `${l.label} (precio)`, type: "number" },
@@ -360,9 +383,18 @@ export const leadsRouter = router({
       );
       const allCustomFields = columns
         .filter(c => c.isCustom || c.isPricing)
-        .map(c => ({ key: c.key, label: c.label, type: c.type, synonyms: [c.key, c.label.toLowerCase()] }));
+        .map(c => ({
+          key: c.key,
+          label: c.label,
+          type: c.type,
+          synonyms: [c.key, c.label.toLowerCase()],
+        }));
       const buffer = Buffer.from(input.base64, "base64");
-      const validation = validateLeadImport(buffer, input.manualMapping, allCustomFields);
+      const validation = validateLeadImport(
+        buffer,
+        input.manualMapping,
+        allCustomFields
+      );
 
       const currentUser = toCurrentUser(ctx.user, ctx);
       const numericUserId =
@@ -663,6 +695,23 @@ export const leadsRouter = router({
       );
       const refreshedLead = await loadLeadOrThrow(lead.publicId, currentUser);
 
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "status_change",
+        entityType: "lead",
+        entityId: lead.publicId,
+        entityName: lead.nombreCliente ?? lead.publicId,
+        summary:
+          'Cambió el estado del lead "' +
+          (lead.nombreCliente ?? lead.publicId) +
+          '" a "' +
+          (input.estadoLead ?? "") +
+          '"',
+      });
+
       return {
         lead: refreshedLead,
         automation,
@@ -703,6 +752,14 @@ export const leadsRouter = router({
         });
       }
 
+      // Capturar fase anterior para el resumen
+      const previousStage = await getPipelineStageByName(
+        input.pipelineId,
+        lead.estadoLead ?? ""
+      );
+      const previousStageName =
+        previousStage?.displayName ?? lead.estadoLead ?? "sin fase";
+
       await setLeadStageInPipeline(
         numericLeadId,
         input.pipelineId,
@@ -722,6 +779,31 @@ export const leadsRouter = router({
         "status_changed"
       );
       const refreshedLead = await loadLeadOrThrow(input.publicId, currentUser);
+
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "status_change",
+        entityType: "lead",
+        entityId: lead.publicId,
+        entityName: lead.nombreCliente ?? lead.publicId,
+        summary:
+          'Movió el lead "' +
+          (lead.nombreCliente ?? lead.publicId) +
+          '" de "' +
+          previousStageName +
+          '" a "' +
+          stage.displayName +
+          '"',
+        details: {
+          pipelineId: input.pipelineId,
+          fromStage: previousStageName,
+          toStage: stage.displayName,
+        },
+      });
+
       return { lead: refreshedLead, automation };
     }),
 
@@ -891,10 +973,22 @@ export const leadsRouter = router({
     const customFields = await getLeadFieldDefs(orgId);
     const pricingConfig = await getPricingFieldsConfig(orgId);
     const pricingLines = getPricingLines(pricingConfig);
-    const customPricingLines = pricingLines.filter(l => !l.isStandard && l.visible);
+    const customPricingLines = pricingLines.filter(
+      l => !l.isStandard && l.visible
+    );
     const pricingFieldDefs: FieldColumn[] = customPricingLines.flatMap(l => [
-      { key: l.cantidadKey, label: `${l.label} (cantidad)`, type: "number", isPricing: true },
-      { key: l.precioKey, label: `${l.label} (precio)`, type: "number", isPricing: true },
+      {
+        key: l.cantidadKey,
+        label: `${l.label} (cantidad)`,
+        type: "number",
+        isPricing: true,
+      },
+      {
+        key: l.precioKey,
+        label: `${l.label} (precio)`,
+        type: "number",
+        isPricing: true,
+      },
     ]);
     const columns = buildTemplateFieldOrder(customFields, pricingFieldDefs);
     const headers = columns.map(c => c.label);
@@ -928,16 +1022,24 @@ export const leadsRouter = router({
           "Cliente interesado en el plan corporativo con parqueadero incluido.",
       };
       if (c.key in examples) return examples[c.key];
-      if (c.isPricing) return c.key.endsWith("_qty") || c.key.endsWith("_price") && !c.key.includes("cantidad") ? String(
-        customPricingLines.find(l => l.precioKey === c.key)?.precioDefault ?? 0
-      ) : "0";
+      if (c.isPricing)
+        return c.key.endsWith("_qty") ||
+          (c.key.endsWith("_price") && !c.key.includes("cantidad"))
+          ? String(
+              customPricingLines.find(l => l.precioKey === c.key)
+                ?.precioDefault ?? 0
+            )
+          : "0";
       if (c.isCustom) {
         const def = customFields.find(f => f.key === c.key);
         if (!def) return "";
         switch (def.type) {
-          case "date": return "2025-01-01";
-          case "number": return "0";
-          default: return def.options?.[0] ?? "Ejemplo";
+          case "date":
+            return "2025-01-01";
+          case "number":
+            return "0";
+          default:
+            return def.options?.[0] ?? "Ejemplo";
         }
       }
       return "0";
@@ -989,6 +1091,18 @@ export const leadsRouter = router({
       requireRole(ctx.user, ["superadmin"]);
       const orgId = ctx.activeOrganizationId ?? 1;
       await setLeadFieldDefs(orgId, input.fields);
+      await logAudit({
+        organizationId: orgId,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "update",
+        entityType: "lead_field_def",
+        entityId: String(orgId),
+        entityName: "campos custom",
+        summary: "Actualizó la configuración de campos custom de leads",
+        details: { count: input.fields.length },
+      });
       return { success: true };
     }),
 
@@ -1018,6 +1132,17 @@ export const leadsRouter = router({
       requireRole(ctx.user, ["superadmin"]);
       const orgId = ctx.activeOrganizationId ?? 1;
       await setFormLayout(orgId, input.overrides);
+      await logAudit({
+        organizationId: orgId,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "update",
+        entityType: "form_layout",
+        entityId: String(orgId),
+        entityName: "layout del formulario",
+        summary: "Actualizó la configuración de layout del formulario",
+      });
       return { success: true };
     }),
 
@@ -1049,6 +1174,17 @@ export const leadsRouter = router({
       await setPricingFieldsConfig(orgId, {
         hiddenLines: input.hiddenLines,
         customLines: input.customLines,
+      });
+      await logAudit({
+        organizationId: orgId,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "update",
+        entityType: "pricing_line",
+        entityId: String(orgId),
+        entityName: "líneas de pricing",
+        summary: "Actualizó la configuración de líneas de pricing",
       });
       return { success: true };
     }),

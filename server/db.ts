@@ -2461,6 +2461,17 @@ export async function deleteAutomationRule(id: number) {
   return db.delete(automationRules).where(eq(automationRules.id, id));
 }
 
+export async function getAutomationRule(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [rule] = await db
+    .select()
+    .from(automationRules)
+    .where(eq(automationRules.id, id))
+    .limit(1);
+  return rule ?? null;
+}
+
 export async function incrementRuleExecution(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

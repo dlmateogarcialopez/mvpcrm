@@ -10,6 +10,7 @@ import { DialerKeypad } from "@/components/dialer/DialerKeypad";
 import { ActiveCall } from "@/components/dialer/ActiveCall";
 import { CallDashboard } from "@/components/dialer/CallDashboard";
 import { SmsInbox } from "@/components/dialer/SmsInbox";
+import { SmsQuickSend } from "@/components/dialer/SmsQuickSend";
 import { RecordingsList } from "@/components/dialer/RecordingsList";
 import PhoneListsPage from "./PhoneListsPage";
 
@@ -156,7 +157,18 @@ export default function DialerPage() {
 
         <TabsContent value="sms" className="mt-4">
           <div className="max-w-3xl">
-            <SmsInbox />
+            <Tabs defaultValue="leads" className="w-full">
+              <TabsList>
+                <TabsTrigger value="leads">Por leads</TabsTrigger>
+                <TabsTrigger value="quick">Envío rápido</TabsTrigger>
+              </TabsList>
+              <TabsContent value="leads" className="mt-4">
+                <SmsInbox />
+              </TabsContent>
+              <TabsContent value="quick" className="mt-4">
+                <SmsQuickSend />
+              </TabsContent>
+            </Tabs>
           </div>
         </TabsContent>
 

@@ -115,8 +115,20 @@ export const pipelinesRouter = router({
         organizationId: orgId,
       });
 
+      await logAudit({
+        organizationId: orgId,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "create",
+        entityType: "pipeline",
+        entityId: String(pipeline.id),
+        entityName: pipeline.name,
+        summary: 'Creó el embudo "' + pipeline.name + '"',
+        details: input.description ? { description: input.description } : undefined,
+      });
+
       if (input.copyFromPipelineId) {
-        // Validar que el pipeline fuente es de la misma org
         const source = await db.getPipeline(input.copyFromPipelineId);
         if (!source || source.organizationId !== orgId) {
           throw new TRPCError({
@@ -130,7 +142,7 @@ export const pipelinesRouter = router({
         );
         for (let i = 0; i < sourceStages.length; i++) {
           const s = sourceStages[i];
-          await db.createPipelineStage({
+          const createdStage = await db.createPipelineStage({
             pipelineId: pipeline.id,
             name: s.name,
             displayName: s.displayName,
@@ -139,6 +151,17 @@ export const pipelinesRouter = router({
             isActive: true,
             kind: "open",
             organizationId: orgId,
+          });
+          await logAudit({
+            organizationId: orgId,
+            actorUserId: ctx.user?.id ?? null,
+            actorEmail: ctx.user?.email ?? null,
+            actorName: ctx.user?.name ?? null,
+            action: "create",
+            entityType: "pipeline_stage",
+            entityId: String(createdStage.id),
+            entityName: s.displayName,
+            summary: 'Creó la fase "' + s.displayName + '" en el embudo "' + pipeline.name + '"',
           });
         }
       }

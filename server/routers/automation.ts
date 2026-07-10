@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import * as db from "../db";
+import { logAudit } from "../db";
 import { executeEmailCampaign } from "../services/emailCampaign";
 import {
   shouldTriggerRule,
@@ -98,11 +99,22 @@ export const automationRouter = router({
       ) {
         requireSuperadmin(ctx);
       }
-      // Forzar organizationId al de la org activa
-      return db.createAutomationRule({
+      const created = await db.createAutomationRule({
         ...input,
         organizationId: ctx.activeOrganizationId ?? 1,
       });
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "create",
+        entityType: "automation_rule",
+        entityId: String(created.id),
+        entityName: created.name,
+        summary: 'Creó la regla de automatización "' + created.name + '"',
+      });
+      return created;
     }),
 
   updateRule: protectedProcedure
@@ -126,13 +138,39 @@ export const automationRouter = router({
         requireSuperadmin(ctx);
       }
       const { id, ...data } = input;
-      return db.updateAutomationRule(id, data);
+      const updated = await db.updateAutomationRule(id, data);
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "update",
+        entityType: "automation_rule",
+        entityId: String(id),
+        entityName: updated.name,
+        summary: 'Actualizó la regla de automatización "' + updated.name + '"',
+      });
+      return updated;
     }),
 
   deleteRule: protectedProcedure
     .input(z.number())
-    .mutation(async ({ input }) => {
-      return db.deleteAutomationRule(input);
+    .mutation(async ({ ctx, input }) => {
+      const existing = await db.getAutomationRule(input);
+      const ruleName = existing?.name ?? "regla #" + input;
+      await db.deleteAutomationRule(input);
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "delete",
+        entityType: "automation_rule",
+        entityId: String(input),
+        entityName: ruleName,
+        summary: 'Eliminó la regla "' + ruleName + '"',
+      });
+      return { success: true };
     }),
 
   // Email Campaigns
@@ -153,10 +191,22 @@ export const automationRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      return db.createEmailCampaign({
+      const created = await db.createEmailCampaign({
         ...input,
         organizationId: ctx.activeOrganizationId ?? 1,
       });
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "create",
+        entityType: "email_campaign",
+        entityId: String(created.id),
+        entityName: created.name,
+        summary: 'Creó la campaña de email "' + created.name + '"',
+      });
+      return created;
     }),
 
   updateCampaign: protectedProcedure
@@ -171,15 +221,41 @@ export const automationRouter = router({
         status: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
-      return db.updateEmailCampaign(id, data);
+      const updated = await db.updateEmailCampaign(id, data);
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "update",
+        entityType: "email_campaign",
+        entityId: String(id),
+        entityName: updated.name,
+        summary: 'Actualizó la campaña de email "' + updated.name + '"',
+      });
+      return updated;
     }),
 
   deleteCampaign: protectedProcedure
     .input(z.number())
-    .mutation(async ({ input }) => {
-      return db.deleteEmailCampaign(input);
+    .mutation(async ({ ctx, input }) => {
+      const existing = await db.getEmailCampaign(input);
+      const campaignName = existing?.name ?? "campaña #" + input;
+      await db.deleteEmailCampaign(input);
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "delete",
+        entityType: "email_campaign",
+        entityId: String(input),
+        entityName: campaignName,
+        summary: 'Eliminó la campaña "' + campaignName + '"',
+      });
+      return { success: true };
     }),
 
   sendCampaign: protectedProcedure
@@ -347,7 +423,7 @@ export const automationRouter = router({
           isActive: z.boolean().optional().default(true),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const telegramChatId = (input.telegramChatId || "").trim() || null;
         const email = (input.email || "").trim() || null;
         if (!telegramChatId && !email) {
@@ -357,13 +433,25 @@ export const automationRouter = router({
               "El destinatario debe tener al menos un canal: chatId de Telegram o email.",
           });
         }
-        return db.createAutomationRecipient({
+        const created = await db.createAutomationRecipient({
           name: input.name.trim(),
           telegramChatId,
           email,
           notes: input.notes ?? null,
           isActive: input.isActive ?? true,
         });
+        await logAudit({
+          organizationId: ctx.activeOrganizationId ?? 1,
+          actorUserId: ctx.user?.id ?? null,
+          actorEmail: ctx.user?.email ?? null,
+          actorName: ctx.user?.name ?? null,
+          action: "create",
+          entityType: "automation_recipient",
+          entityId: String(created.id),
+          entityName: created.name,
+          summary: 'Creó el destinatario de automatización "' + created.name + '"',
+        });
+        return created;
       }),
 
     update: protectedProcedure
@@ -387,7 +475,7 @@ export const automationRouter = router({
           isActive: z.boolean().optional(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
         const patch: Record<string, unknown> = { ...data };
         if ("telegramChatId" in patch) {
@@ -401,7 +489,19 @@ export const automationRouter = router({
         if ("name" in patch && typeof patch.name === "string") {
           patch.name = patch.name.trim();
         }
-        return db.updateAutomationRecipient(id, patch);
+        const updated = await db.updateAutomationRecipient(id, patch);
+        await logAudit({
+          organizationId: ctx.activeOrganizationId ?? 1,
+          actorUserId: ctx.user?.id ?? null,
+          actorEmail: ctx.user?.email ?? null,
+          actorName: ctx.user?.name ?? null,
+          action: "update",
+          entityType: "automation_recipient",
+          entityId: String(id),
+          entityName: updated.name,
+          summary: 'Actualizó el destinatario de automatización "' + updated.name + '"',
+        });
+        return updated;
       }),
 
     delete: protectedProcedure
@@ -410,8 +510,21 @@ export const automationRouter = router({
         return next();
       })
       .input(z.number())
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const existing = await db.getAutomationRecipient(input);
+        const recipientName = existing?.name ?? "destinatario #" + input;
         await db.deleteAutomationRecipient(input);
+        await logAudit({
+          organizationId: ctx.activeOrganizationId ?? 1,
+          actorUserId: ctx.user?.id ?? null,
+          actorEmail: ctx.user?.email ?? null,
+          actorName: ctx.user?.name ?? null,
+          action: "delete",
+          entityType: "automation_recipient",
+          entityId: String(input),
+          entityName: recipientName,
+          summary: 'Eliminó el destinatario de automatización "' + recipientName + '"',
+        });
         return { success: true };
       }),
   }),

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import * as db from "../db";
+import { logAudit } from "../db";
 import { renameInAutomationRules } from "../services/automationTriggers";
 
 /**
@@ -94,7 +95,7 @@ export const pipelineRouter = router({
         });
       }
       const order = all.length + 1;
-      return db.createPipelineStage({
+      const created = await db.createPipelineStage({
         pipelineId: input.pipelineId,
         name: input.name,
         displayName: input.displayName,
@@ -104,6 +105,35 @@ export const pipelineRouter = router({
         kind: input.kind,
         organizationId: ctx.activeOrganizationId ?? 1,
       });
+
+      const parentPipeline = await db.getPipeline(input.pipelineId);
+      const pipelineName =
+        parentPipeline?.name ?? "embudo #" + input.pipelineId;
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "create",
+        entityType: "pipeline_stage",
+        entityId: String(created.id),
+        entityName: input.displayName,
+        summary:
+          'Creó la fase "' +
+          input.displayName +
+          '" en el embudo "' +
+          pipelineName +
+          '"',
+        details: {
+          pipelineId: input.pipelineId,
+          name: input.name,
+          displayName: input.displayName,
+          kind: input.kind,
+          color: input.color,
+        },
+      });
+
+      return created;
     }),
 
   update: protectedProcedure
@@ -178,6 +208,18 @@ export const pipelineRouter = router({
         );
       }
 
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "update",
+        entityType: "pipeline_stage",
+        entityId: String(id),
+        entityName: updated.displayName,
+        summary: 'Actualizó la fase "' + updated.displayName + '"',
+      });
+
       return updated;
     }),
 
@@ -202,12 +244,23 @@ export const pipelineRouter = router({
         });
       }
       await db.deletePipelineStage(input.id);
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "delete",
+        entityType: "pipeline_stage",
+        entityId: String(input.id),
+        entityName: stage.displayName,
+        summary: 'Eliminó la fase "' + stage.displayName + '"',
+      });
       return { success: true };
     }),
 
   reorder: protectedProcedure
     .input(z.object({ orderedIds: z.array(z.number()) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       if (input.orderedIds.length === 0) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -215,6 +268,18 @@ export const pipelineRouter = router({
         });
       }
       await db.reorderPipelineStages(input.orderedIds);
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "update",
+        entityType: "pipeline_stage",
+        entityId: "0",
+        entityName: "fases del pipeline",
+        summary: "Reordenó las fases del pipeline",
+        details: { count: input.orderedIds.length },
+      });
       return { success: true };
     }),
 
@@ -247,6 +312,21 @@ export const pipelineRouter = router({
           message: "No fue posible actualizar la fase.",
         });
       }
+      await logAudit({
+        organizationId: ctx.activeOrganizationId ?? 1,
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "update",
+        entityType: "pipeline_stage",
+        entityId: String(input.id),
+        entityName: updated.displayName,
+        summary:
+          (input.isActive ? "Activó" : "Desactivó") +
+          ' la fase "' +
+          updated.displayName +
+          '"',
+      });
       return updated;
     }),
 });

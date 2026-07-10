@@ -92,12 +92,12 @@ export const organizationSettings = mysqlTable("organization_settings", {
   pricing: text("pricing"),
   scoring: text("scoring"),
   meta: text("meta"),
-    integrations: text("integrations"),
-    leadFieldDefs: text("leadFieldDefs"),
-    formLayout: text("formLayout"),
-    pricingFields: text("pricingFields"),
-    agentsSeeAllLeads: int("agentsSeeAllLeads").notNull().default(1),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  integrations: text("integrations"),
+  leadFieldDefs: text("leadFieldDefs"),
+  formLayout: text("formLayout"),
+  pricingFields: text("pricingFields"),
+  agentsSeeAllLeads: int("agentsSeeAllLeads").notNull().default(1),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 /**
@@ -778,9 +778,7 @@ export const smsMessages = mysqlTable(
   {
     id: int("id").autoincrement().primaryKey(),
     organizationId: int("organizationId").notNull().default(1),
-    leadId: int("leadId")
-      .notNull()
-      .references(() => leads.id, { onDelete: "cascade" }),
+    leadId: int("leadId").references(() => leads.id, { onDelete: "cascade" }),
     twilioMessageSid: varchar("twilioMessageSid", { length: 64 }),
     direction: mysqlEnum("direction", ["inbound", "outbound"])
       .notNull()
@@ -824,25 +822,22 @@ export const callRecordings = mysqlTable(
   })
 );
 
-export const auditLogs = mysqlTable(
-  "auditLogs",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    organizationId: int("organizationId").notNull().default(1),
-    actorUserId: int("actorUserId"),
-    actorEmail: varchar("actorEmail", { length: 320 }),
-    actorName: text("actorName"),
-    action: varchar("action", { length: 40 }).notNull(),
-    entityType: varchar("entityType", { length: 40 }).notNull(),
-    entityId: varchar("entityId", { length: 64 }),
-    entityName: varchar("entityName", { length: 255 }),
-    summary: varchar("summary", { length: 255 }).notNull(),
-    details: text("details"),
-    ipAddress: varchar("ipAddress", { length: 64 }),
-    userAgent: varchar("userAgent", { length: 255 }),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-  }
-);
+export const auditLogs = mysqlTable("auditLogs", {
+  id: int("id").autoincrement().primaryKey(),
+  organizationId: int("organizationId").notNull().default(1),
+  actorUserId: int("actorUserId"),
+  actorEmail: varchar("actorEmail", { length: 320 }),
+  actorName: text("actorName"),
+  action: varchar("action", { length: 40 }).notNull(),
+  entityType: varchar("entityType", { length: 40 }).notNull(),
+  entityId: varchar("entityId", { length: 64 }),
+  entityName: varchar("entityName", { length: 255 }),
+  summary: varchar("summary", { length: 255 }).notNull(),
+  details: text("details"),
+  ipAddress: varchar("ipAddress", { length: 64 }),
+  userAgent: varchar("userAgent", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;

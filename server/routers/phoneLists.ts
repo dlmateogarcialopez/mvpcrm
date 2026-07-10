@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { eq, desc, and, asc, sql } from "drizzle-orm";
 import { orgProcedure, router } from "../_core/trpc";
 import * as db from "../db";
+import { logAudit } from "../db";
 import { phoneLists, phoneListEntries, leads } from "../../drizzle/schema";
 import { sendWhatsAppDirect } from "../services/telephony/whatsapp";
 
@@ -40,6 +41,17 @@ export const phoneListsRouter = router({
             : null,
         status: "idle",
       });
+      await logAudit({
+        organizationId: orgId(ctx),
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "create",
+        entityType: "phone_list",
+        entityId: String(list.insertId),
+        entityName: input.name,
+        summary: 'Creó la lista telefónica "' + input.name + '"',
+      });
       return list;
     }),
 
@@ -67,6 +79,17 @@ export const phoneListsRouter = router({
       }
 
       await dbc.delete(phoneLists).where(eq(phoneLists.id, input.id));
+      await logAudit({
+        organizationId: orgId(ctx),
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "delete",
+        entityType: "phone_list",
+        entityId: String(input.id),
+        entityName: list.name,
+        summary: 'Eliminó la lista telefónica "' + list.name + '"',
+      });
       return { success: true };
     }),
 
@@ -175,6 +198,18 @@ export const phoneListsRouter = router({
         .set({ totalEntries: sql`${phoneLists.totalEntries} + 1` })
         .where(eq(phoneLists.id, input.listId));
 
+      await logAudit({
+        organizationId: orgId(ctx),
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "create",
+        entityType: "phone_list_entry",
+        entityId: String(entry.insertId),
+        entityName: input.name,
+        summary: 'Agregó "' + input.name + '" a la lista "' + list.name + '"',
+      });
+
       return entry;
     }),
 
@@ -209,6 +244,18 @@ export const phoneListsRouter = router({
         .set(updates)
         .where(eq(phoneListEntries.id, input.id));
 
+      await logAudit({
+        organizationId: orgId(ctx),
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "update",
+        entityType: "phone_list_entry",
+        entityId: String(input.id),
+        entityName: entry.name,
+        summary: 'Actualizó la entrada "' + entry.name + '"',
+      });
+
       return { success: true };
     }),
 
@@ -235,6 +282,18 @@ export const phoneListsRouter = router({
         .update(phoneLists)
         .set({ totalEntries: sql`GREATEST(${phoneLists.totalEntries} - 1, 0)` })
         .where(eq(phoneLists.id, entry.listId));
+
+      await logAudit({
+        organizationId: orgId(ctx),
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "delete",
+        entityType: "phone_list_entry",
+        entityId: String(input.id),
+        entityName: entry.name,
+        summary: 'Eliminó la entrada "' + entry.name + '"',
+      });
 
       return { success: true };
     }),
@@ -368,6 +427,19 @@ export const phoneListsRouter = router({
         .update(phoneLists)
         .set({ totalEntries: sql`${phoneLists.totalEntries} + ${imported}` })
         .where(eq(phoneLists.id, input.listId));
+
+      await logAudit({
+        organizationId: orgId(ctx),
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "create",
+        entityType: "phone_list_entry",
+        entityId: String(input.listId),
+        entityName: list.name,
+        summary: `Importó ${imported} contactos en la lista "${list.name}"`,
+        details: { imported, skippedDuplicates },
+      });
 
       return { imported, skippedDuplicates, duplicateExamples };
     }),
@@ -620,6 +692,18 @@ export const phoneListsRouter = router({
               : null,
         })
         .where(eq(phoneLists.id, input.id));
+
+      await logAudit({
+        organizationId: orgId(ctx),
+        actorUserId: ctx.user?.id ?? null,
+        actorEmail: ctx.user?.email ?? null,
+        actorName: ctx.user?.name ?? null,
+        action: "update",
+        entityType: "phone_list",
+        entityId: String(input.id),
+        entityName: list.name,
+        summary: 'Actualizó el auto-mensaje de la lista "' + list.name + '"',
+      });
 
       return { success: true };
     }),
